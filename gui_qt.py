@@ -53,7 +53,7 @@ QProgressBar {
     border: none;
     border-radius: 4px;
     text-align: center;
-    height: 20px;
+    height: 22px;
     font-size: 10px;
 }
 QProgressBar::chunk {
@@ -76,8 +76,8 @@ QListWidget::item {
     background: #2a2a2a;
     border: 1px solid #3a3a3a;
     border-radius: 4px;
-    margin: 3px 0;
-    padding: 4px;
+    margin: 4px 0;
+    padding: 6px;
 }
 QTreeView {
     background: #252525;
@@ -131,7 +131,7 @@ QLabel#section_header {
 
 class DownloadWorker(QThread):
     """Runs CivitaiExtractor pipeline in a background thread."""
-    progress = Signal(int)       # percentage 0-100 (avoids 32-bit overflow on GB files)
+    progress = Signal(float)     # percentage 0-100 (float to avoid 32-bit overflow)
     metadata = Signal(dict)
     done = Signal(dict)
     error = Signal(str)
@@ -149,7 +149,7 @@ class DownloadWorker(QThread):
             html = ext.fetch_page(self.url)
             model_data = ext.parse_model_data(html)
             file_info = ext.get_file_info(model_data)
-            first_image = ext.get_first_image(html)
+            first_image = ext.get_first_image(html, model_data)
 
             if not file_info:
                 raise ValueError("No downloadable file found on this page")
@@ -166,7 +166,7 @@ class DownloadWorker(QThread):
 
             def on_progress(downloaded, total):
                 if total:
-                    self.progress.emit(int(downloaded / total * 100))
+                    self.progress.emit(downloaded / total * 100.0)
 
             dest = ext.download_file(model_data, file_info, on_progress)
             txt_path = ext.save_keywords(model_data, file_info)
@@ -174,6 +174,7 @@ class DownloadWorker(QThread):
 
             self.done.emit({
                 "model_name": model_data.get("name", "Unknown"),
+                "url": self.url,
                 "file": str(dest),
                 "file_name": file_info["name"],
                 "file_type": file_info["type"],
@@ -193,20 +194,22 @@ class DownloadWorker(QThread):
 
 class DownloadEntryWidget(QWidget):
     """One download row in the queue list."""
-    killed = Signal(object)      # self
+    killed = Signal(object)
     preview_clicked = Signal(object)
+    menu_requested = Signal(object)
 
     def __init__(self, url: str, parent=None):
         super().__init__(parent)
         self.url = url
         self.result = None
         self.first_image_url = None
+        self.setCursor(Qt.PointingHandCursor)
         self._build()
 
     def _build(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(4)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
 
         # Top row: name + type + kill
         top = QHBoxLayout()
@@ -214,6 +217,7 @@ class DownloadEntryWidget(QWidget):
 
         self.name_label = QLabel("Queued...")
         self.name_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        self.name_label.setMinimumWidth(120)
         top.addWidget(self.name_label)
 
         top.addStretch()
@@ -229,9 +233,15 @@ class DownloadEntryWidget(QWidget):
             "QPushButton:hover { color: #e44; background: #3a2020; border-radius: 3px; }"
         )
         kill_btn.clicked.connect(lambda: self.killed.emit(self))
+        kill_btn.setCursor(Qt.ArrowCursor)
         top.addWidget(kill_btn)
 
         layout.addLayout(top)
+
+        # Spacer before progress bar
+        spacer = QWidget()
+        spacer.setFixedHeight(2)
+        layout.addWidget(spacer)
 
         # Progress bar
         self.progress = QProgressBar()
@@ -248,14 +258,14 @@ class DownloadEntryWidget(QWidget):
         kw_btn = QPushButton("Keywords")
         kw_btn.setStyleSheet("font-size: 10px; padding: 3px 10px;")
         kw_btn.clicked.connect(self._view_keywords)
+        kw_btn.setCursor(Qt.ArrowCursor)
         self.actions_row.addWidget(kw_btn)
-        self._kw_btn = kw_btn
 
         save_btn = QPushButton("Save To…")
         save_btn.setStyleSheet("font-size: 10px; padding: 3px 10px;")
-        save_btn.clicked.connect(lambda: self.preview_clicked.emit(self))  # reuse signal for menu
+        save_btn.clicked.connect(lambda: self.menu_requested.emit(self))
+        save_btn.setCursor(Qt.ArrowCursor)
         self.actions_row.addWidget(save_btn)
-        self._save_btn = save_btn
 
         self.actions_row.addStretch()
         self.actions_widget = QWidget()
@@ -264,8 +274,10 @@ class DownloadEntryWidget(QWidget):
         layout.addWidget(self.actions_widget)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self.first_image_url:
+        if event.button() == Qt.LeftButton:
             self.preview_clicked.emit(self)
+        elif event.button() == Qt.RightButton:
+            self.menu_requested.emit(self)
         super().mousePressEvent(event)
 
     def _view_keywords(self):
@@ -420,7 +432,6 @@ class MainWindow(QMainWindow):
         self.folder_tree.setModel(self.folder_model)
         root_idx = self.folder_model.index(str(self.data_root))
         self.folder_tree.setRootIndex(root_idx)
-        # Hide size/type/modified columns
         for col in (1, 2, 3):
             self.folder_tree.setColumnHidden(col, True)
         right_layout.addWidget(self.folder_tree)
@@ -484,7 +495,8 @@ class MainWindow(QMainWindow):
         self.url_input.clear()
 
         entry = DownloadEntryWidget(url)
-        entry.preview_clicked.connect(self._on_entry_clicked)
+        entry.preview_clicked.connect(self._on_preview_clicked)
+        entry.menu_requested.connect(lambda e: self._show_context_menu(e))
         entry.killed.connect(self._kill_entry)
 
         item = QListWidgetItem()
@@ -495,7 +507,7 @@ class MainWindow(QMainWindow):
 
         worker = DownloadWorker(url, self.api_key, str(self.temp_dir))
         worker.metadata.connect(lambda d: self._on_metadata(entry, d))
-        worker.progress.connect(lambda pct, e=entry: self._on_progress(e, pct))
+        worker.progress.connect(lambda pct: self._on_progress(entry, pct))
         worker.preview_url.connect(lambda u: self._on_preview_url(entry, u))
         worker.done.connect(lambda r: self._on_done(entry, r))
         worker.error.connect(lambda e: self._on_error(entry, e))
@@ -509,13 +521,13 @@ class MainWindow(QMainWindow):
         entry.name_label.setText(data["file_name"][:80])
         entry.type_label.setText(f"{data['file_type']} | {data['base_model']}")
 
-    def _on_progress(self, entry: DownloadEntryWidget, pct: int):
-        entry.progress.setValue(pct)
-        entry.progress.setFormat(f"{pct}%")
+    def _on_progress(self, entry: DownloadEntryWidget, pct: float):
+        entry.progress.setValue(int(pct))
+        entry.progress.setFormat(f"{pct:.0f}%")
+        entry.progress.repaint()
 
     def _on_preview_url(self, entry: DownloadEntryWidget, url: str):
         entry.first_image_url = url
-        entry.setCursor(Qt.PointingHandCursor)
 
     def _on_done(self, entry: DownloadEntryWidget, result: dict):
         entry.result = result
@@ -536,8 +548,7 @@ class MainWindow(QMainWindow):
         )
         self.status_bar.showMessage(f"✗ Error: {msg}")
 
-    def _on_entry_clicked(self, entry: DownloadEntryWidget):
-        """Show preview or context menu depending on right/left click."""
+    def _on_preview_clicked(self, entry: DownloadEntryWidget):
         img = entry.first_image_url or (entry.result or {}).get("first_image")
         if img:
             self._show_preview(img)
@@ -569,9 +580,9 @@ class MainWindow(QMainWindow):
         if not item:
             return
         entry = self.queue_list.itemWidget(item)
-        if not entry or not entry.result:
+        if not entry:
             return
-        self._build_dest_menu(entry, self.queue_list.viewport().mapToGlobal(pos))
+        self._show_context_menu(entry, self.queue_list.viewport().mapToGlobal(pos))
 
     def _folder_context_menu(self, pos):
         idx = self.folder_tree.indexAt(pos)
@@ -580,8 +591,6 @@ class MainWindow(QMainWindow):
         dest = Path(self.folder_model.filePath(idx))
         if not dest.is_dir():
             return
-
-        # Find selected entry
         current_item = self.queue_list.currentItem()
         if not current_item:
             return
@@ -594,15 +603,29 @@ class MainWindow(QMainWindow):
         save_action.triggered.connect(lambda: self._save_to(entry, dest))
         menu.exec(self.folder_tree.viewport().mapToGlobal(pos))
 
-    def _build_dest_menu(self, entry: DownloadEntryWidget, global_pos):
-        if not entry.result:
-            return
+    def _show_context_menu(self, entry: DownloadEntryWidget, global_pos=None):
         menu = QMenu(self)
 
+        # Copy URL (always available)
+        a = menu.addAction("📋 Copy civitai URL")
+        a.triggered.connect(lambda: QApplication.clipboard().setText(entry.url))
+
+        if not entry.result:
+            menu.addSeparator()
+            a = menu.addAction("✕ Remove & Purge")
+            a.triggered.connect(lambda: self._kill_entry(entry))
+            if global_pos:
+                menu.exec(global_pos)
+            else:
+                menu.exec(menu.pos() if hasattr(menu, 'pos') else self.cursor().pos())
+            return
+
+        menu.addSeparator()
+
+        # Destination folders
         ft = entry.result["file_type"].lower()
         bm = entry.result["base_model"].lower()
 
-        # Checkpoints skip base_model layer
         if ft in ("checkpoint", "checkpoints"):
             base_path = self.data_root / ft
         else:
@@ -612,9 +635,8 @@ class MainWindow(QMainWindow):
             action_added = False
             for sub in sorted(base_path.iterdir()):
                 if sub.is_dir():
-                    dest_sub = sub
                     a = menu.addAction(f"📁 {sub.name}")
-                    a.triggered.connect(lambda checked, d=dest_sub: self._save_to(entry, d))
+                    a.triggered.connect(lambda checked, d=sub: self._save_to(entry, d))
                     action_added = True
             if not action_added:
                 label = f"(no folders under {ft}/)" if ft in ("checkpoint", "checkpoints") else f"(no folders under {ft}/{bm}/)"
@@ -624,12 +646,15 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         a = menu.addAction("📂 Browse…")
         a.triggered.connect(lambda: self._browse_save(entry))
-        a = menu.addAction("✕ Remove & Purge")
-        a.triggered.connect(lambda: self._kill_entry(entry))
         a = menu.addAction("View Keywords")
         a.triggered.connect(entry._view_keywords)
+        a = menu.addAction("✕ Remove & Purge")
+        a.triggered.connect(lambda: self._kill_entry(entry))
 
-        menu.exec(global_pos)
+        if global_pos:
+            menu.exec(global_pos)
+        else:
+            menu.exec(self.cursor().pos())
 
     def _browse_save(self, entry: DownloadEntryWidget):
         d = QFileDialog.getExistingDirectory(self, "Save To", str(self.data_root))
@@ -653,7 +678,6 @@ class MainWindow(QMainWindow):
         if src_kw.exists():
             shutil.move(str(src_kw), str(dest / src_kw.name))
 
-        # Purge leftover temp files with same base name
         base = src_file.stem
         for leftover in list(self.temp_dir.iterdir()):
             if leftover.is_file() and leftover.stem == base:
@@ -663,7 +687,6 @@ class MainWindow(QMainWindow):
                     pass
 
         self.status_bar.showMessage(f"✓ Saved → {dest}")
-        # Remove from queue
         self._kill_entry(entry)
 
     def _kill_entry(self, entry: DownloadEntryWidget):
@@ -685,7 +708,6 @@ class MainWindow(QMainWindow):
                     except OSError:
                         pass
 
-        # Remove from QListWidget
         for i in range(self.queue_list.count()):
             item = self.queue_list.item(i)
             w = self.queue_list.itemWidget(item)

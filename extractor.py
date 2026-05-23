@@ -46,12 +46,25 @@ class CivitaiExtractor:
                 return d
         raise ValueError("No model data found in page")
 
-    def get_first_image(self, html: str) -> str | None:
-        """Extract the first model image URL from the page HTML or description."""
-        # Images in __NEXT_DATA__ JSON use escaped quotes: src=\"...\"
+    def get_first_image(self, html: str, model_data: dict = None) -> str | None:
+        """Extract the first model example image URL.
+
+        Prefers the model data's images array (model example images).
+        Falls back to HTML regex (which may pick up creator avatars).
+        """
+        # Best source: model version images array
+        if model_data:
+            for v in model_data.get("modelVersions", []):
+                images = v.get("images", [])
+                if images:
+                    url = images[0].get("url")
+                    if url:
+                        return url
+
+        # Fallback: escaped quotes in __NEXT_DATA__ JSON
         imgs = re.findall(r'src=\\"(https://image\.civitai\.com[^"]+)\\"', html)
         if not imgs:
-            # Fallback: regular quotes (e.g. in description field)
+            # Fallback: regular quotes (description field etc)
             imgs = re.findall(r'src="(https://image\.civitai\.com[^"]+)"', html)
         return imgs[0] if imgs else None
 
