@@ -77,6 +77,13 @@ class DownloadEntry:
                                    fg=t["fg"], bg=t["frame_bg"], anchor="w")
         self.name_label.pack(side="left")
 
+        self.kill_btn = tk.Button(top, text="✕", font=("Sans", 8), width=2,
+                                  command=self._kill,
+                                  bg=t["frame_bg"], fg=t["dim"], relief="flat",
+                                  activebackground=t["error"], activeforeground="#fff",
+                                  bd=0, highlightthickness=0)
+        self.kill_btn.pack(side="right", padx=(4, 0))
+
         self.type_label = tk.Label(top, text="", font=("Sans", 8), fg=t["dim"], bg=t["frame_bg"])
         self.type_label.pack(side="right")
 
@@ -92,7 +99,9 @@ class DownloadEntry:
 
         for w in [self.frame, self.name_label, self.type_label, self.status_label, self.progress]:
             w.bind("<Button-3>", self._on_right_click)
-            w.bind("<Button-1>", self._on_left_click, add="+")
+            w.bind("<Button-1>", self._on_left_click)
+        # kill_btn: right-click for context menu only (left-click is its command)
+        self.kill_btn.bind("<Button-3>", self._on_right_click)
 
     def update_name(self, name: str):
         self.name_label.configure(text=name[:60])
@@ -132,12 +141,18 @@ class DownloadEntry:
 
         for w in [kw_btn, save_btn, actions]:
             w.bind("<Button-3>", self._on_right_click)
+            w.bind("<Button-1>", self._on_left_click)
 
     def _on_left_click(self, event=None):
         """Show preview image on left-click."""
         img = self.first_image or (self.result or {}).get("first_image")
         if img:
             self.gui._show_preview(img)
+        return "break"
+
+    def _kill(self):
+        """Kill this entry and purge its temp files."""
+        self.gui._remove_entry(self)
 
     def _on_right_click(self, event=None):
         if not self.result:
@@ -193,7 +208,6 @@ class CivitaiGUI:
         self.root.bind("<Button-1>", self._dismiss_menu, add="+")
 
         self._last_clipboard = ""
-        self._clipboard_watcher()
         self._center_window()
 
     # ─── THEME APPLICATION ────────────────────────────────
@@ -382,24 +396,10 @@ class CivitaiGUI:
 
     # ─── CLIPBOARD ──────────────────────────────────────
 
-    def _clipboard_watcher(self):
-        """Auto-fill URL field when civitai URL is copied. Does NOT auto-start download."""
-        try:
-            clip = self.root.clipboard_get()
-            if clip and clip != self._last_clipboard and "civitai" in clip:
-                self._last_clipboard = clip
-                url = clip.strip()
-                if url.startswith("http"):
-                    self.url_var.set(url)
-                    # Download only starts on paste (Ctrl+V) or Enter, not on clipboard copy
-        except Exception:
-            pass
-        self.root.after(500, self._clipboard_watcher)
-
     def _check_clipboard_paste(self):
         """Triggered after Ctrl+V paste into URL field — start download."""
         url = self.url_var.get().strip()
-        if url and "civitai" in url:
+        if url and "civitai" in url and url != self._last_clipboard:
             self._last_clipboard = url
             self.root.after(200, lambda: self._start_download(url))
 
@@ -448,7 +448,13 @@ class CivitaiGUI:
 
             # Preview is now shown on left-click, not automatically
             if first_image:
-                entry.gui.root.after(0, lambda img=first_image: setattr(entry, 'first_image', img))
+                def _set_preview(img=first_image):
+                    entry.first_image = img
+                    try:
+                        entry.frame.configure(cursor="hand2")
+                    except tk.TclError:
+                        pass
+                entry.gui.root.after(0, _set_preview)
 
             def on_progress(downloaded: int, total: int):
                 entry.gui.root.after(0, lambda: entry.update_progress(downloaded, total))
@@ -588,7 +594,7 @@ class CivitaiGUI:
         menu.add_separator()
         menu.add_command(label="📂 Browse…",
                          command=lambda: (self._browse_dest(entry), self._dismiss_menu()))
-        menu.add_command(label="✕ Remove",
+        menu.add_command(label="✕ Remove & Purge",
                          command=lambda: (self._remove_entry(entry), self._dismiss_menu()))
 
         self._active_menu = menu
@@ -630,6 +636,27 @@ class CivitaiGUI:
         self._log(f"Moved to: {dest}")
 
     def _remove_entry(self, entry: DownloadEntry):
+        """Remove entry from UI and purge its temp files."""
+        # Delete temp files
+        if entry.result:
+            for key in ("file", "keywords_file"):
+                fp = entry.result.get(key)
+                if fp:
+                    p = Path(fp)
+                    if p.exists():
+                        try:
+                            p.unlink()
+                        except OSError:
+                            pass
+            # Also purge any leftover files with same base name
+            src_file = Path(entry.result["file"])
+            base = src_file.stem
+            for leftover in list(self.temp_dir.iterdir()):
+                if leftover.is_file() and leftover.stem == base:
+                    try:
+                        leftover.unlink()
+                    except OSError:
+                        pass
         if entry in self.downloads:
             self.downloads.remove(entry)
         entry.frame.destroy()
