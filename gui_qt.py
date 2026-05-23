@@ -213,6 +213,8 @@ class DownloadEntryWidget(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
         self._card = QWidget()
         self._card.setStyleSheet("""
             QWidget {

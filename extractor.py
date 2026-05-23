@@ -13,6 +13,30 @@ from pathlib import Path
 from typing import Callable
 
 
+# Per-user bucket cache for image URL construction
+_bucket_cache: dict[str, str] = {}
+
+
+def _get_bucket(username: str) -> str | None:
+    """Fetch the image bucket for a user from their profile page."""
+    if username in _bucket_cache:
+        return _bucket_cache[username]
+    try:
+        req = urllib.request.Request(
+            f"https://civitai.red/user/{username}",
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        html = urllib.request.urlopen(req, timeout=15).read().decode("utf-8")
+        buckets = re.findall(r'https?://image\.civitai\.com/([^/]+)/', html)
+        if buckets:
+            _bucket_cache[username] = buckets[0]
+            return buckets[0]
+    except Exception:
+        pass
+    return None
+
+
+
 class CivitaiExtractor:
     """Extract model metadata and download files from civitai.red."""
 
@@ -49,22 +73,47 @@ class CivitaiExtractor:
     def get_first_image(self, html: str, model_data: dict = None) -> str | None:
         """Extract the first model example image URL.
 
-        Prefers the model data's images array (model example images).
-        Falls back to HTML regex (which may pick up creator avatars).
+        1. Model data images array (civitai.com main site)
+        2. Showcase image from __NEXT_DATA__ queries (civitai.red)
+        3. HTML regex fallback
         """
-        # Best source: model version images array
+        # 1. Model data images array
         if model_data:
             for v in model_data.get("modelVersions", []):
-                images = v.get("images", [])
+                images = v.get("images")
                 if images:
                     url = images[0].get("url")
                     if url:
                         return url
 
-        # Fallback: escaped quotes in __NEXT_DATA__ JSON
+        # 2. Showcase image from __NEXT_DATA__ (civitai.red)
+        try:
+            nd_match = re.search(
+                r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
+                html, re.DOTALL
+            )
+            if nd_match:
+                data = json.loads(nd_match.group(1))
+                queries = data["props"]["pageProps"]["trpcState"]["json"]["queries"]
+                showcase_uuid = None
+                username = None
+                for q in queries:
+                    d = q["state"]["data"]
+                    if isinstance(d, dict):
+                        if "image" in d and isinstance(d["image"], dict):
+                            showcase_uuid = d["image"].get("url")
+                        if "user" in d and isinstance(d["user"], dict):
+                            username = d["user"].get("username")
+                if showcase_uuid and username:
+                    bucket = _get_bucket(username)
+                    if bucket:
+                        return f"https://image.civitai.com/{bucket}/{showcase_uuid}/width=450/{showcase_uuid}.jpeg"
+        except Exception:
+            pass
+
+        # 3. Fallback: HTML regex
         imgs = re.findall(r'src=\\"(https://image\.civitai\.com[^"]+)\\"', html)
         if not imgs:
-            # Fallback: regular quotes (description field etc)
             imgs = re.findall(r'src="(https://image\.civitai\.com[^"]+)"', html)
         return imgs[0] if imgs else None
 
