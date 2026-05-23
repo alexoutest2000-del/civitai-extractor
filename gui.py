@@ -276,6 +276,13 @@ class CivitaiGUI:
 
     # ─── API KEY ─────────────────────────────────────────
 
+    def _browse_root(self):
+        """Browse for data root folder."""
+        d = filedialog.askdirectory(initialdir=self.root_var.get())
+        if d:
+            self.root_var.set(d)
+            self._scan_folders()
+
     def _try_load_api_key(self):
         for p in [Path.home() / ".api_key_civitai", Path("/home/bot/projects/.api_key_civitai")]:
             if p.is_file():
