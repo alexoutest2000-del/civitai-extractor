@@ -73,15 +73,13 @@ QListWidget {
     outline: none;
 }
 QListWidget::item {
-    background: #2a2a2a;
-    border: 1px solid #3a3a3a;
-    border-radius: 4px;
-    margin: 4px 0;
-    padding: 6px;
+    background: transparent;
+    border: none;
+    margin: 3px 0;
+    padding: 2px;
 }
 QListWidget::item:selected {
-    background: #2a2a2a;
-    border: 1px solid #3a3a3a;
+    background: transparent;
 }
 QTreeView {
     background: #252525;
@@ -211,7 +209,21 @@ class DownloadEntryWidget(QWidget):
         self._build()
 
     def _build(self):
-        layout = QVBoxLayout(self)
+        # Outer frame for visible border
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        self._card = QWidget()
+        self._card.setStyleSheet("""
+            QWidget {
+                background: #2a2a2a;
+                border: 1px solid #3a3a3a;
+                border-radius: 5px;
+            }
+        """)
+        outer.addWidget(self._card)
+
+        layout = QVBoxLayout(self._card)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(6)
 
@@ -570,26 +582,53 @@ class MainWindow(QMainWindow):
     # ─── PREVIEW ───────────────────────────────────────
 
     def _show_preview(self, url: str):
+        self.preview_label.setText("Loading…")
+        # Try Qt's network stack first
         req = QNetworkRequest(QUrl(url))
         req.setRawHeader(b"User-Agent", b"Mozilla/5.0")
         reply = self._nam.get(req)
         reply.finished.connect(self._on_preview_reply)
-        self._preview_replies.append(reply)  # prevent GC
+        self._preview_replies.append(reply)
 
     def _on_preview_reply(self):
         reply = self.sender()
-        data = reply.readAll()
+        err = reply.error()
+        if err != reply.NetworkError.NoError:
+            # Qt SSL may be missing — fall back to urllib
+            url = reply.url().toString()
+            self._show_preview_urllib(url)
+        else:
+            data = reply.readAll()
+            self._display_preview_data(data)
+        self._preview_replies = [r for r in self._preview_replies if not r.isFinished()]
+        reply.deleteLater()
+
+    def _show_preview_urllib(self, url: str):
+        """Fallback: download image via urllib (always has SSL)."""
+        import urllib.request as ur
+        import threading
+        def _fetch():
+            try:
+                req = ur.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                data = ur.urlopen(req, timeout=15).read()
+                self._display_preview_data(data)
+            except Exception as e:
+                self.preview_label.setText(f"Preview error: {e}")
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _display_preview_data(self, data):
+        from PySide6.QtCore import QByteArray
         pix = QPixmap()
-        pix.loadFromData(data)
+        if isinstance(data, bytes):
+            pix.loadFromData(QByteArray(data))
+        else:
+            pix.loadFromData(data)
         if not pix.isNull():
             pix = pix.scaled(350, 350, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.preview_label.setPixmap(pix)
             self.preview_label.setText("")
         else:
             self.preview_label.setText("Preview failed — bad image data")
-        # Clean up old replies
-        self._preview_replies = [r for r in self._preview_replies if not r.isFinished()]
-        reply.deleteLater()
 
     # ─── CONTEXT MENUS ─────────────────────────────────
 
