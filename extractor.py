@@ -179,8 +179,22 @@ class CivitaiExtractor:
 if __name__ == "__main__":
     import sys
 
-    with open("/home/bot/projects/.api_key_civitai") as f:
-        api_key = f.read().strip()
+    # Try common paths
+    key_paths = [
+        os.path.expanduser("~/.api_key_civitai"),
+        "/home/bot/projects/.api_key_civitai",
+    ]
+    api_key = None
+    for p in key_paths:
+        if os.path.isfile(p):
+            with open(p) as f:
+                api_key = f.read().strip()
+            break
+
+    if not api_key:
+        print("API key not found. Tried:", key_paths)
+        print("Create ~/.api_key_civitai with your Civitai API token.")
+        sys.exit(1)
 
     extractor = CivitaiExtractor(api_key)
     url = sys.argv[1] if len(sys.argv) > 1 else input("URL: ")
