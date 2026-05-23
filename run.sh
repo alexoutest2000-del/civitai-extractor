@@ -3,8 +3,10 @@
 set -e
 cd "$(dirname "$0")"
 
-# Create venv if missing
-if [ ! -d ".venv" ]; then
+# Ensure venv is healthy (exists + has PySide6)
+if [ ! -f ".venv/bin/python" ] || ! .venv/bin/python -c "import PySide6" 2>/dev/null; then
+    # Nuke broken venv from previous failed runs
+    rm -rf .venv
     echo "Creating virtual environment..."
     if ! python3 -m venv .venv 2>/dev/null; then
         echo ""
