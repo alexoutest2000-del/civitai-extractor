@@ -7,7 +7,7 @@ import sys
 import shutil
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal, QUrl, QFileInfo, QDir
+from PySide6.QtCore import Qt, QThread, Signal, QUrl, QDir
 from PySide6.QtGui import QPixmap, QAction
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter,

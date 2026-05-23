@@ -1,102 +1,98 @@
-# Civitai Data Extractor v2
+# Civitai Data Extractor v3
 
 Desktop GUI tool to download AI models and extract trigger words from [civitai.red](https://civitai.red).
 
 ## What it does
 
-- **Paste & auto-download** — paste a URL (or copy to clipboard), and the download starts immediately
+- **Paste & download** — paste a URL and press Enter, download starts immediately
 - **Progress tracking** — real-time progress bar with MB downloaded
-- **Image preview** — shows the first gallery image from the model page
+- **Image preview** — left-click any download entry to see the model's first gallery image
 - **Trigger word extraction** — combines `trainedWords` with unique description keywords → `{filename}.txt`
 - **Type detection** — identifies LORA, Checkpoint, etc., and the base model (Illustrious, Pony, SDXL…)
-- **Organized saving** — right-click any download to move it into a structured folder tree
+- **Organized saving** — right-click a download → choose destination folder, or use the folder browser sidebar
+- **Kill & purge** — ✕ button on any entry removes it and deletes all temp files
 
-## Folder Structure
-
-Create this tree under any root folder (configurable in the GUI):
+## Folder structure
 
 ```
-{root}/data/
+{root}/
 ├── lora/
 │   ├── illustrious/
 │   │   ├── folder1/
-│   │   ├── folder2/
-│   │   └── folder3/
+│   │   └── folder2/
 │   └── pony/
-│       ├── folder4/
-│       └── folder5/
-├── checkpoint/
-│   ├── sdxl/
-│   │   └── models/
-│   └── flux/
-│       └── dev/
+│       └── folder3/
+├── checkpoint/    ← no base_model layer for checkpoints
+│   ├── models/
+│   └── dev/
 └── ...
 ```
-
-Right-click a download → matching subfolders appear based on the file's type + base model.
 
 ## Dependencies
 
 | Dependency | Version | Purpose | Install |
 |------------|---------|---------|---------|
 | Python | 3.11+ | Runtime | `sudo apt install python3` |
-| Tkinter | — | GUI toolkit | `sudo apt install python3-tk` |
-| Pillow | 9.0+ | Image preview thumbnails | `sudo apt install python3-pillow` |
-| stdlib (`json`, `re`, `urllib`, `html`, `pathlib`, `tempfile`, `shutil`) | built-in | Core logic | None (bundled) |
+| PySide6 | 6.11+ | Qt GUI toolkit | `pip install pyside6` |
+| Pillow | 9.0+ | Image preview (fallback) | `sudo apt install python3-pillow` |
+| libegl1 | any | Qt OpenGL support | `sudo apt install libegl1` |
+| libxcb-cursor0 | any | Qt X11 cursor support | `sudo apt install libxcb-cursor0` |
 
-Only `python3-tk` and `python3-pillow` need installing — everything else is standard library.
+All other deps are Python stdlib: `json`, `re`, `urllib`, `html`, `pathlib`, `tempfile`, `shutil`, `threading`.
 
 ## Setup
 
 ```bash
-# Install system dependencies (Ubuntu/Debian)
-sudo apt install python3 python3-tk python3-pillow
+# System deps (Ubuntu/Debian)
+sudo apt install python3 python3-pip libegl1 libxcb-cursor0
 
 # Clone
 git clone https://github.com/alexoutest2000-del/civitai-extractor.git
 cd civitai-extractor
+
+# Create venv + install PySide6
+python3 -m venv .venv
+.venv/bin/pip install pyside6
 ```
 
 ## API Key
 
-Place your Civitai API key in `~/.api_key_civitai` (a single line of text). The GUI also lets you browse and select any location.
+Place your Civitai API key in `~/.api_key_civitai` (single line of text).  
+The GUI auto-detects it and lets you browse for an alternative location.
 
 ## Usage
 
 ### GUI (recommended)
 
 ```bash
-./run.sh
+.venv/bin/python gui_qt.py
 ```
 
-1. Load your API key (Browse → Load, or auto-detected from `~/.api_key_civitai`)
-2. Set the **Data Root** folder (where your `data/` tree lives)
-3. Paste a civitai.red URL → auto-downloads to temp
-4. Right-click the completed download → choose destination folder
-5. Click **View Keywords** to see extracted trigger words
+1. API key loads automatically from `~/.api_key_civitai`
+2. Set the **Base Folder** (where your folder tree lives, default: `~/civitai-data`)
+3. Paste a civitai.red URL in the **Model URL** field and press **Enter**
+4. Download appears in the queue with live progress
+5. **Left-click** the entry to preview the model image
+6. **Right-click** the entry → save to folder, or **right-click a folder** in the sidebar → "Save here"
+7. Click **✕** to kill any download and purge its temp files
+8. Click **Keywords** to see extracted trigger words
 
 ### CLI
 
 ```bash
-python3 extractor.py "https://civitai.red/models/2641591/evelynn-league-of-legends"
+.venv/bin/python extractor.py "https://civitai.red/models/2641591"
 ```
 
-## Output
+## Architecture
 
-Each download produces:
-- `{filename}.safetensors` — the model file (temp until moved)
-- `{filename}.txt` — one trigger word block per line
-
-## Files
-
-| File | Purpose |
-|------|---------|
-| `extractor.py` | Core — page parsing, keyword extraction, file download with progress |
-| `gui.py` | Tkinter GUI — clipboard watch, progress bars, image preview, folder tree |
-| `run.sh` | Launcher script |
+- `extractor.py` — pure backend: page fetch, `__NEXT_DATA__` JSON parsing, deduplication, file download with progress
+- `gui_qt.py` — PySide6/Qt6 frontend: QThread workers emit signals for thread-safe progress, QSS dark theme, QTreeView folder browser
+- Temp downloads go to `~/.cache/civitai-temp/` (auto-purged on save or kill)
+- API key read from `~/.api_key_civitai` at startup (never tracked in git)
 
 ## Security
 
-- API key stored outside repo, loaded at runtime
+- API key stored outside repo (`~/.api_key_civitai`), loaded at runtime
+- `.gitignore` covers `.venv/`, `__pycache__/`, `.api_key_*`, `.env`
 - No hardcoded credentials in source
-- Minimal dependencies (stdlib + tk + pillow)
+- Network requests use explicit User-Agent header

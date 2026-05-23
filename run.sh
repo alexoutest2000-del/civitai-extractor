@@ -1,4 +1,12 @@
 #!/bin/bash
-# Launch the Civitai Data Extractor GUI
+# Civitai Data Extractor — PySide6 GUI launcher
 cd "$(dirname "$0")"
-python3 gui.py
+
+# Create venv if missing
+if [ ! -d ".venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv .venv
+    .venv/bin/pip install pyside6
+fi
+
+exec .venv/bin/python gui_qt.py
