@@ -79,6 +79,10 @@ QListWidget::item {
     margin: 4px 0;
     padding: 6px;
 }
+QListWidget::item:selected {
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+}
 QTreeView {
     background: #252525;
     border: 1px solid #444;
@@ -310,7 +314,9 @@ class MainWindow(QMainWindow):
         self.api_key = None
         self._workers: list[DownloadWorker] = []
         self._entries: list[DownloadEntryWidget] = []
+        self._active_entry: DownloadEntryWidget | None = None
         self._nam = QNetworkAccessManager()
+        self._preview_replies: list = []  # prevent GC
 
         # Paths
         self.temp_dir = Path.home() / ".cache" / "civitai-temp"
@@ -397,6 +403,7 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(hdr)
 
         self.queue_list = QListWidget()
+        self.queue_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         self.queue_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.queue_list.customContextMenuRequested.connect(self._queue_context_menu)
         left_layout.addWidget(self.queue_list)
@@ -537,6 +544,12 @@ class MainWindow(QMainWindow):
             "QProgressBar { background: #333; } QProgressBar::chunk { background: #4a4; }"
         )
         entry.actions_widget.show()
+        # Update item size hint now that actions row is visible
+        for i in range(self.queue_list.count()):
+            item = self.queue_list.item(i)
+            if self.queue_list.itemWidget(item) is entry:
+                item.setSizeHint(entry.sizeHint())
+                break
         self.status_bar.showMessage(
             f"✓ {result['model_name']} ({result['file_type']} | {result['base_model']})"
         )
@@ -549,6 +562,7 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"✗ Error: {msg}")
 
     def _on_preview_clicked(self, entry: DownloadEntryWidget):
+        self._active_entry = entry
         img = entry.first_image_url or (entry.result or {}).get("first_image")
         if img:
             self._show_preview(img)
@@ -559,9 +573,11 @@ class MainWindow(QMainWindow):
         req = QNetworkRequest(QUrl(url))
         req.setRawHeader(b"User-Agent", b"Mozilla/5.0")
         reply = self._nam.get(req)
-        reply.finished.connect(lambda r=reply: self._on_preview_loaded(r))
+        reply.finished.connect(self._on_preview_reply)
+        self._preview_replies.append(reply)  # prevent GC
 
-    def _on_preview_loaded(self, reply):
+    def _on_preview_reply(self):
+        reply = self.sender()
         data = reply.readAll()
         pix = QPixmap()
         pix.loadFromData(data)
@@ -570,7 +586,9 @@ class MainWindow(QMainWindow):
             self.preview_label.setPixmap(pix)
             self.preview_label.setText("")
         else:
-            self.preview_label.setText("Preview failed")
+            self.preview_label.setText("Preview failed — bad image data")
+        # Clean up old replies
+        self._preview_replies = [r for r in self._preview_replies if not r.isFinished()]
         reply.deleteLater()
 
     # ─── CONTEXT MENUS ─────────────────────────────────
@@ -582,6 +600,7 @@ class MainWindow(QMainWindow):
         entry = self.queue_list.itemWidget(item)
         if not entry:
             return
+        self._active_entry = entry
         self._show_context_menu(entry, self.queue_list.viewport().mapToGlobal(pos))
 
     def _folder_context_menu(self, pos):
@@ -591,10 +610,7 @@ class MainWindow(QMainWindow):
         dest = Path(self.folder_model.filePath(idx))
         if not dest.is_dir():
             return
-        current_item = self.queue_list.currentItem()
-        if not current_item:
-            return
-        entry = self.queue_list.itemWidget(current_item)
+        entry = self._active_entry
         if not entry or not entry.result:
             return
 
