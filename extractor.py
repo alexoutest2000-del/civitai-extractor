@@ -87,7 +87,7 @@ class CivitaiExtractor:
     def get_first_image(self, html: str, model_data: dict = None) -> str | None:
         """Extract the first model example image URL.
 
-        1. Model data images array (civitai.com main site)
+        1. Model data images array (civitai.com main site + API fallback)
         2. Showcase image from __NEXT_DATA__ queries (civitai.red)
         3. HTML regex fallback
         """
@@ -99,6 +99,27 @@ class CivitaiExtractor:
                     url = images[0].get("url")
                     if url:
                         return url
+
+            # 1b. SSR-stripped images — fetch from API by model ID
+            model_id = model_data.get("id")
+            if model_id:
+                try:
+                    api_url = f"https://civitai.red/api/v1/models/{model_id}"
+                    req = urllib.request.Request(
+                        api_url,
+                        headers={"User-Agent": "Mozilla/5.0"}
+                    )
+                    api_data = json.loads(
+                        urllib.request.urlopen(req, timeout=15).read().decode("utf-8")
+                    )
+                    for v in api_data.get("modelVersions", []):
+                        images = v.get("images")
+                        if images:
+                            url = images[0].get("url")
+                            if url:
+                                return url
+                except Exception:
+                    pass
 
         # 2. Showcase image from __NEXT_DATA__ (civitai.red)
         # Only use images from model-related queries, not user profiles.
@@ -135,7 +156,7 @@ class CivitaiExtractor:
             imgs = re.findall(r'src=\\"(https://image\.civitai\.com[^"]+)\\"', html)
         # Filter out avatar/profile images (small widths = user pics)
         model_imgs = [u for u in imgs if not _is_avatar_url(u)]
-        return (model_imgs or imgs)[0] if (model_imgs or imgs) else None
+        return model_imgs[0] if model_imgs else None
 
     def extract_keywords(self, model_data: dict) -> list[str]:
         """Extract trigger words. Returns deduplicated list."""
