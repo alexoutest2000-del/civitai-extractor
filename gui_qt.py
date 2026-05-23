@@ -131,7 +131,7 @@ QLabel#section_header {
 
 class DownloadWorker(QThread):
     """Runs CivitaiExtractor pipeline in a background thread."""
-    progress = Signal(int, int)
+    progress = Signal(int)       # percentage 0-100 (avoids 32-bit overflow on GB files)
     metadata = Signal(dict)
     done = Signal(dict)
     error = Signal(str)
@@ -165,7 +165,8 @@ class DownloadWorker(QThread):
                 self.preview_url.emit(first_image)
 
             def on_progress(downloaded, total):
-                self.progress.emit(downloaded, total)
+                if total:
+                    self.progress.emit(int(downloaded / total * 100))
 
             dest = ext.download_file(model_data, file_info, on_progress)
             txt_path = ext.save_keywords(model_data, file_info)
@@ -494,7 +495,7 @@ class MainWindow(QMainWindow):
 
         worker = DownloadWorker(url, self.api_key, str(self.temp_dir))
         worker.metadata.connect(lambda d: self._on_metadata(entry, d))
-        worker.progress.connect(lambda dl, tot: self._on_progress(entry, dl, tot))
+        worker.progress.connect(lambda pct, e=entry: self._on_progress(e, pct))
         worker.preview_url.connect(lambda u: self._on_preview_url(entry, u))
         worker.done.connect(lambda r: self._on_done(entry, r))
         worker.error.connect(lambda e: self._on_error(entry, e))
@@ -508,13 +509,9 @@ class MainWindow(QMainWindow):
         entry.name_label.setText(data["file_name"][:80])
         entry.type_label.setText(f"{data['file_type']} | {data['base_model']}")
 
-    def _on_progress(self, entry: DownloadEntryWidget, downloaded: int, total: int):
-        if total:
-            pct = int(downloaded / total * 100)
-            entry.progress.setValue(pct)
-            mb_done = downloaded / 1_048_576
-            mb_total = total / 1_048_576
-            entry.progress.setFormat(f"{mb_done:.0f}/{mb_total:.0f} MB ({pct}%)")
+    def _on_progress(self, entry: DownloadEntryWidget, pct: int):
+        entry.progress.setValue(pct)
+        entry.progress.setFormat(f"{pct}%")
 
     def _on_preview_url(self, entry: DownloadEntryWidget, url: str):
         entry.first_image_url = url
