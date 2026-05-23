@@ -9,13 +9,41 @@ from tkinter import ttk, messagebox, filedialog
 import threading
 import os
 import sys
-import time
 import shutil
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from extractor import CivitaiExtractor
+
+# ─── COLOR THEMES ────────────────────────────────────────
+
+THEMES = {
+    "Dark": {
+        "bg": "#1e1e1e", "frame_bg": "#252525", "entry_bg": "#333",
+        "fg": "#d4d4d4", "dim": "#888", "accent": "#4a4", "error": "#e44",
+        "button_bg": "#3a3a3a", "status_bg": "#333",
+    },
+    "Light": {
+        "bg": "#f5f5f5", "frame_bg": "#ffffff", "entry_bg": "#ffffff",
+        "fg": "#222", "dim": "#666", "accent": "#2a2", "error": "#c00",
+        "button_bg": "#e0e0e0", "status_bg": "#ddd",
+    },
+    "Warm": {
+        "bg": "#2b2420", "frame_bg": "#332e2a", "entry_bg": "#403832",
+        "fg": "#e8d5b7", "dim": "#a09080", "accent": "#c9a96e", "error": "#d4785c",
+        "button_bg": "#4a3f35", "status_bg": "#3a322c",
+    },
+    "Nord": {
+        "bg": "#2e3440", "frame_bg": "#3b4252", "entry_bg": "#434c5e",
+        "fg": "#d8dee9", "dim": "#81a1c1", "accent": "#a3be8c", "error": "#bf616a",
+        "button_bg": "#4c566a", "status_bg": "#3b4252",
+    },
+    "Solarized Dark": {
+        "bg": "#002b36", "frame_bg": "#073642", "entry_bg": "#073642",
+        "fg": "#839496", "dim": "#586e75", "accent": "#859900", "error": "#dc322f",
+        "button_bg": "#586e75", "status_bg": "#073642",
+    },
+}
 
 
 class DownloadEntry:
@@ -28,48 +56,44 @@ class DownloadEntry:
         self.gui = gui
         self.result = None
         self.error = None
-        self.status = "queued"  # queued, downloading, done, error
+        self.status = "queued"
         self.progress_pct = 0
-        self._widgets = {}
         self._build()
 
+    @property
+    def t(self):
+        return self.gui.theme
+
     def _build(self):
-        # Container frame with border
-        self.frame = tk.Frame(self.parent, bg="#2a2a2a", bd=1, relief="solid")
+        t = self.t
+        self.frame = tk.Frame(self.parent, bg=t["frame_bg"], bd=1, relief="solid")
         self.frame.pack(fill="x", padx=5, pady=3)
 
-        # Top row: name + type badge
-        top = tk.Frame(self.frame, bg="#2a2a2a")
+        top = tk.Frame(self.frame, bg=t["frame_bg"])
         top.pack(fill="x", padx=8, pady=(6, 0))
 
         self.name_label = tk.Label(top, text="Queued...", font=("Sans", 10, "bold"),
-                                   fg="#d4d4d4", bg="#2a2a2a", anchor="w")
+                                   fg=t["fg"], bg=t["frame_bg"], anchor="w")
         self.name_label.pack(side="left")
 
-        self.type_label = tk.Label(top, text="", font=("Sans", 8), fg="#888", bg="#2a2a2a")
+        self.type_label = tk.Label(top, text="", font=("Sans", 8), fg=t["dim"], bg=t["frame_bg"])
         self.type_label.pack(side="right")
 
-        # Progress bar
         self.progress = ttk.Progressbar(self.frame, mode="determinate", length=300)
         self.progress.pack(fill="x", padx=8, pady=(4, 0))
 
-        # Bottom row: status + actions
-        bottom = tk.Frame(self.frame, bg="#2a2a2a")
+        bottom = tk.Frame(self.frame, bg=t["frame_bg"])
         bottom.pack(fill="x", padx=8, pady=(2, 6))
 
         self.status_label = tk.Label(bottom, text="Waiting...", font=("Sans", 8),
-                                     fg="#888", bg="#2a2a2a", anchor="w")
+                                     fg=t["dim"], bg=t["frame_bg"], anchor="w")
         self.status_label.pack(side="left")
 
-        # Right-click binding on the entire frame
-        self.frame.bind("<Button-3>", self._on_right_click)
-        self.name_label.bind("<Button-3>", self._on_right_click)
-        self.type_label.bind("<Button-3>", self._on_right_click)
-        self.status_label.bind("<Button-3>", self._on_right_click)
-        self.progress.bind("<Button-3>", self._on_right_click)
+        for w in [self.frame, self.name_label, self.type_label, self.status_label, self.progress]:
+            w.bind("<Button-3>", self._on_right_click)
 
     def update_name(self, name: str):
-        self.name_label.configure(text=name)
+        self.name_label.configure(text=name[:60])
 
     def update_type(self, file_type: str, base_model: str):
         self.type_label.configure(text=f"{file_type} | {base_model}")
@@ -84,45 +108,45 @@ class DownloadEntry:
                 text=f"Downloading {mb_done:.0f}/{mb_total:.0f} MB ({self.progress_pct}%)"
             )
 
-    def update_status(self, text: str, color: str = "#888"):
-        self.status_label.configure(text=text, fg=color)
+    def update_status(self, text: str, color: str = None):
+        self.status_label.configure(text=text, fg=color or self.t["dim"])
 
     def add_actions(self):
-        """Add action buttons below the status."""
-        actions = tk.Frame(self.frame, bg="#2a2a2a")
+        t = self.t
+        actions = tk.Frame(self.frame, bg=t["frame_bg"])
         actions.pack(fill="x", padx=8, pady=(0, 6))
 
         kw_btn = tk.Button(actions, text="View Keywords", font=("Sans", 8),
                            command=self._view_keywords,
-                           bg="#3a3a3a", fg="#d4d4d4", relief="flat")
+                           bg=t["button_bg"], fg=t["fg"], relief="flat",
+                           activebackground=t["entry_bg"], activeforeground=t["fg"])
         kw_btn.pack(side="left", padx=(0, 8))
 
         save_btn = tk.Button(actions, text="Save To…", font=("Sans", 8),
                              command=self._on_right_click,
-                             bg="#3a3a3a", fg="#d4d4d4", relief="flat")
+                             bg=t["button_bg"], fg=t["fg"], relief="flat",
+                             activebackground=t["entry_bg"], activeforeground=t["fg"])
         save_btn.pack(side="left")
 
-        self.frame.bind("<Button-3>", self._on_right_click)
         for w in [kw_btn, save_btn, actions]:
             w.bind("<Button-3>", self._on_right_click)
 
     def _on_right_click(self, event=None):
-        """Show folder tree context menu for destination selection."""
         if not self.result:
             return
         self.gui._show_dest_menu(self, event)
 
     def _view_keywords(self):
-        """Show keywords in a popup window."""
         if not self.result:
             return
         win = tk.Toplevel(self.frame)
         win.title(f"Keywords — {self.result['model_name']}")
         win.geometry("500x400")
-        win.configure(bg="#1e1e1e")
+        win.configure(bg=self.t["bg"])
 
-        text = tk.Text(win, font=("monospace", 9), bg="#1e1e1e", fg="#d4d4d4",
-                       relief="flat", borderwidth=0, wrap="word")
+        text = tk.Text(win, font=("monospace", 9), bg=self.t["bg"], fg=self.t["fg"],
+                       relief="flat", borderwidth=0, wrap="word",
+                       insertbackground=self.t["fg"])
         text.pack(fill="both", expand=True, padx=10, pady=10)
 
         for kw in self.result.get("keywords", []):
@@ -136,148 +160,188 @@ class CivitaiGUI:
         self.root.title("Civitai Data Extractor v2")
         self.root.geometry("700x550")
         self.root.resizable(True, True)
-        self.root.configure(bg="#1e1e1e")
+
+        # Theme
+        self.theme_name = tk.StringVar(value="Dark")
+        self.theme = THEMES["Dark"]
+        self.root.configure(bg=self.theme["bg"])
 
         self.api_key = None
-        self.extractor = None
         self.downloads: list[DownloadEntry] = []
-        self.processing = False
+        self._active_menu = None  # track right-click menu for dismissal
 
-        # Default paths
+        # Paths
         self.temp_dir = Path.home() / ".cache" / "civitai-temp"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         self.data_root = Path.home() / "civitai-data"
         self.data_root.mkdir(parents=True, exist_ok=True)
-
-        # Folder tree cache
-        self._folder_tree = {}  # { (type, base_model): [subfolder_paths] }
+        self._folder_tree = {}
 
         self._build_ui()
         self._try_load_api_key()
         self._scan_folders()
 
-        # Start clipboard watcher
+        # Dismiss right-click menu on left-click anywhere
+        self.root.bind("<Button-1>", self._dismiss_menu, add="+")
+
         self._last_clipboard = ""
         self._clipboard_watcher()
-
         self._center_window()
+
+    # ─── THEME APPLICATION ────────────────────────────────
+
+    def _apply_theme(self):
+        self.theme = THEMES[self.theme_name.get()]
+        t = self.theme
+        self.root.configure(bg=t["bg"])
+        self.status_bar.configure(bg=t["status_bg"], fg=t["dim"])
+        self.preview_label.configure(bg=t["frame_bg"], fg=t["dim"])
+        # Re-apply to main and all children
+        for child in self.root.winfo_children():
+            self._retheme_widget(child)
+
+    def _retheme_widget(self, w):
+        t = self.theme
+        try:
+            if isinstance(w, (tk.Label, tk.Button, tk.Frame)):
+                if isinstance(w, tk.Button):
+                    w.configure(bg=t["button_bg"], fg=t["fg"],
+                                activebackground=t["entry_bg"], activeforeground=t["fg"])
+                elif isinstance(w, tk.Frame):
+                    w.configure(bg=t["bg"])
+                elif isinstance(w, tk.Label):
+                    w.configure(bg=t["bg"], fg=t["fg"])
+        except tk.TclError:
+            pass
+        for child in w.winfo_children():
+            self._retheme_widget(child)
 
     # ─── UI BUILD ────────────────────────────────────────
 
     def _build_ui(self):
-        main = tk.Frame(self.root, bg="#1e1e1e", padx=12, pady=12)
+        t = self.theme
+        main = tk.Frame(self.root, bg=t["bg"], padx=12, pady=12)
         main.pack(fill="both", expand=True)
 
-        # Title
-        title = tk.Label(main, text="Civitai Data Extractor", font=("Sans", 16, "bold"),
-                         fg="#d4d4d4", bg="#1e1e1e")
-        title.pack(anchor="w", pady=(0, 10))
+        # Title row with theme selector
+        title_row = tk.Frame(main, bg=t["bg"])
+        title_row.pack(fill="x", pady=(0, 10))
 
-        # ── API Key row
+        tk.Label(title_row, text="Civitai Data Extractor", font=("Sans", 16, "bold"),
+                 fg=t["fg"], bg=t["bg"]).pack(side="left")
+
+        theme_frame = tk.Frame(title_row, bg=t["bg"])
+        theme_frame.pack(side="right")
+        tk.Label(theme_frame, text="Theme:", font=("Sans", 8), fg=t["dim"], bg=t["bg"]).pack(side="left")
+        theme_menu = ttk.Combobox(theme_frame, textvariable=self.theme_name,
+                                  values=list(THEMES.keys()), state="readonly", width=16)
+        theme_menu.pack(side="left", padx=(4, 0))
+        theme_menu.bind("<<ComboboxSelected>>", lambda e: self._apply_theme())
+
         self._build_key_row(main)
-
-        # ── URL input
         self._build_url_row(main)
-
-        # ── Data Root row
         self._build_root_row(main)
 
-        # ── Content area: downloads list + image preview
-        content = tk.Frame(main, bg="#1e1e1e")
+        # Content: downloads + preview
+        content = tk.Frame(main, bg=t["bg"])
         content.pack(fill="both", expand=True, pady=(10, 0))
 
-        # Downloads panel
-        dl_frame = tk.Frame(content, bg="#1e1e1e")
+        # Downloads
+        dl_frame = tk.Frame(content, bg=t["bg"])
         dl_frame.pack(side="left", fill="both", expand=True)
 
-        dl_label = tk.Label(dl_frame, text="Downloads", font=("Sans", 10, "bold"),
-                            fg="#d4d4d4", bg="#1e1e1e")
-        dl_label.pack(anchor="w")
+        tk.Label(dl_frame, text="Downloads", font=("Sans", 10, "bold"),
+                 fg=t["fg"], bg=t["bg"]).pack(anchor="w")
 
-        self.dl_canvas = tk.Canvas(dl_frame, bg="#252525", highlightthickness=0)
+        self.dl_canvas = tk.Canvas(dl_frame, bg=t["frame_bg"], highlightthickness=0)
         scrollbar = ttk.Scrollbar(dl_frame, orient="vertical", command=self.dl_canvas.yview)
-        self.dl_inner = tk.Frame(self.dl_canvas, bg="#252525")
-
+        self.dl_inner = tk.Frame(self.dl_canvas, bg=t["frame_bg"])
         self.dl_inner.bind("<Configure>",
                            lambda e: self.dl_canvas.configure(scrollregion=self.dl_canvas.bbox("all")))
         self.dl_canvas.create_window((0, 0), window=self.dl_inner, anchor="nw")
         self.dl_canvas.configure(yscrollcommand=scrollbar.set)
-
         self.dl_canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # Image preview panel
-        preview_frame = tk.Frame(content, bg="#252525", width=200)
-        preview_frame.pack(side="right", fill="y", padx=(10, 0))
-        preview_frame.pack_propagate(False)
+        # Preview
+        self.preview_frame = tk.Frame(content, bg=t["frame_bg"], width=200, height=250)
+        self.preview_frame.pack(side="right", fill="y", padx=(10, 0))
+        self.preview_frame.pack_propagate(False)
 
-        tk.Label(preview_frame, text="Preview", font=("Sans", 9, "bold"),
-                 fg="#888", bg="#252525").pack(pady=(5, 5))
+        tk.Label(self.preview_frame, text="Preview", font=("Sans", 9, "bold"),
+                 fg=t["dim"], bg=t["frame_bg"]).pack(pady=(5, 5))
 
-        self.preview_label = tk.Label(preview_frame, text="No image", font=("Sans", 8),
-                                      fg="#555", bg="#252525", wraplength=180)
-        self.preview_label.pack(expand=True)
+        self.preview_label = tk.Label(self.preview_frame, text="No image", font=("Sans", 8),
+                                      fg=t["dim"], bg=t["frame_bg"], wraplength=180,
+                                      compound="center")
+        self.preview_label.pack(expand=True, fill="both", padx=5, pady=5)
 
-        # ── Status bar
+        # Status bar
         self.status_bar = tk.Label(self.root, text="Ready", font=("Sans", 8),
-                                   fg="#888", bg="#333", anchor="w", padx=10)
+                                   fg=t["dim"], bg=t["status_bg"], anchor="w", padx=10)
         self.status_bar.pack(side="bottom", fill="x")
 
     def _build_key_row(self, parent):
-        frame = tk.Frame(parent, bg="#1e1e1e")
+        t = self.theme
+        frame = tk.Frame(parent, bg=t["bg"])
         frame.pack(fill="x", pady=(0, 8))
-
-        tk.Label(frame, text="API Key:", font=("Sans", 9), fg="#888", bg="#1e1e1e").pack(side="left")
+        tk.Label(frame, text="API Key:", font=("Sans", 9), fg=t["dim"], bg=t["bg"]).pack(side="left")
 
         self.key_path_var = tk.StringVar()
-        key_entry = tk.Entry(frame, textvariable=self.key_path_var, font=("monospace", 9),
-                             bg="#333", fg="#d4d4d4", insertbackground="#d4d4d4")
-        key_entry.pack(side="left", fill="x", expand=True, padx=(5, 5))
+        tk.Entry(frame, textvariable=self.key_path_var, font=("monospace", 9),
+                 bg=t["entry_bg"], fg=t["fg"], insertbackground=t["fg"]).pack(
+            side="left", fill="x", expand=True, padx=(5, 5))
 
         tk.Button(frame, text="Browse", font=("Sans", 8), command=self._browse_key,
-                  bg="#3a3a3a", fg="#d4d4d4", relief="flat").pack(side="left", padx=(0, 5))
+                  bg=t["button_bg"], fg=t["fg"], relief="flat",
+                  activebackground=t["entry_bg"], activeforeground=t["fg"]).pack(
+            side="left", padx=(0, 5))
         tk.Button(frame, text="Load", font=("Sans", 8), command=self._load_key,
-                  bg="#3a3a3a", fg="#d4d4d4", relief="flat").pack(side="left")
+                  bg=t["button_bg"], fg=t["fg"], relief="flat",
+                  activebackground=t["entry_bg"], activeforeground=t["fg"]).pack(side="left")
 
-        self.key_status = tk.Label(frame, text="No key", font=("Sans", 8), fg="#e44", bg="#1e1e1e")
+        self.key_status = tk.Label(frame, text="No key", font=("Sans", 8), fg=t["error"], bg=t["bg"])
         self.key_status.pack(side="left", padx=(8, 0))
 
     def _build_url_row(self, parent):
-        frame = tk.Frame(parent, bg="#1e1e1e")
+        t = self.theme
+        frame = tk.Frame(parent, bg=t["bg"])
         frame.pack(fill="x", pady=(0, 8))
 
-        tk.Label(frame, text="Model URL:", font=("Sans", 9), fg="#888", bg="#1e1e1e").pack(side="left")
+        tk.Label(frame, text="Model URL:", font=("Sans", 9), fg=t["dim"], bg=t["bg"]).pack(side="left")
 
         self.url_var = tk.StringVar()
         self.url_entry = tk.Entry(frame, textvariable=self.url_var, font=("monospace", 10),
-                                  bg="#333", fg="#d4d4d4", insertbackground="#d4d4d4")
+                                  bg=t["entry_bg"], fg=t["fg"], insertbackground=t["fg"])
         self.url_entry.pack(side="left", fill="x", expand=True, padx=(5, 5))
         self.url_entry.bind("<Return>", lambda e: self._start_download(self.url_var.get().strip()))
         self.url_entry.focus_set()
-
         self.url_entry.bind("<Control-v>", lambda e: self.root.after(100, self._check_clipboard_paste))
         self.url_entry.bind("<Control-V>", lambda e: self.root.after(100, self._check_clipboard_paste))
 
     def _build_root_row(self, parent):
-        frame = tk.Frame(parent, bg="#1e1e1e")
+        t = self.theme
+        frame = tk.Frame(parent, bg=t["bg"])
         frame.pack(fill="x", pady=(0, 5))
 
-        tk.Label(frame, text="Data Root:", font=("Sans", 9), fg="#888", bg="#1e1e1e").pack(side="left")
+        tk.Label(frame, text="Base Folder:", font=("Sans", 9), fg=t["dim"], bg=t["bg"]).pack(side="left")
 
         self.root_var = tk.StringVar(value=str(self.data_root))
-        root_entry = tk.Entry(frame, textvariable=self.root_var, font=("monospace", 9),
-                              bg="#333", fg="#d4d4d4", insertbackground="#d4d4d4")
-        root_entry.pack(side="left", fill="x", expand=True, padx=(5, 5))
+        tk.Entry(frame, textvariable=self.root_var, font=("monospace", 9),
+                 bg=t["entry_bg"], fg=t["fg"], insertbackground=t["fg"]).pack(
+            side="left", fill="x", expand=True, padx=(5, 5))
 
         tk.Button(frame, text="Browse", font=("Sans", 8), command=self._browse_root,
-                  bg="#3a3a3a", fg="#d4d4d4", relief="flat").pack(side="left", padx=(0, 5))
+                  bg=t["button_bg"], fg=t["fg"], relief="flat",
+                  activebackground=t["entry_bg"], activeforeground=t["fg"]).pack(
+            side="left", padx=(0, 5))
         tk.Button(frame, text="↻ Refresh", font=("Sans", 8), command=self._scan_folders,
-                  bg="#3a3a3a", fg="#d4d4d4", relief="flat").pack(side="left")
+                  bg=t["button_bg"], fg=t["fg"], relief="flat",
+                  activebackground=t["entry_bg"], activeforeground=t["fg"]).pack(side="left")
 
-    # ─── API KEY ─────────────────────────────────────────
+    # ─── API KEY ────────────────────────────────────────
 
     def _browse_root(self):
-        """Browse for data root folder."""
         d = filedialog.askdirectory(initialdir=self.root_var.get())
         if d:
             self.root_var.set(d)
@@ -289,7 +353,7 @@ class CivitaiGUI:
                 self.key_path_var.set(str(p))
                 with open(p) as f:
                     self.api_key = f.read().strip()
-                self.key_status.configure(text="✓ Loaded", fg="#4a4")
+                self.key_status.configure(text="✓ Loaded", fg=self.theme["accent"])
                 self._log("API key loaded.")
                 return
 
@@ -305,13 +369,12 @@ class CivitaiGUI:
             return
         with open(p) as f:
             self.api_key = f.read().strip()
-        self.key_status.configure(text="✓ Loaded", fg="#4a4")
+        self.key_status.configure(text="✓ Loaded", fg=self.theme["accent"])
         self._log(f"API key loaded: {p.name}")
 
-    # ─── CLIPBOARD WATCHER ───────────────────────────────
+    # ─── CLIPBOARD ──────────────────────────────────────
 
     def _clipboard_watcher(self):
-        """Check clipboard every 500ms for new civitai URLs."""
         try:
             clip = self.root.clipboard_get()
             if clip and clip != self._last_clipboard and "civitai" in clip:
@@ -325,13 +388,12 @@ class CivitaiGUI:
         self.root.after(500, self._clipboard_watcher)
 
     def _check_clipboard_paste(self):
-        """Called after Ctrl+V — treat manual paste as trigger."""
         url = self.url_var.get().strip()
         if url and "civitai" in url and url != self._last_clipboard:
             self._last_clipboard = url
             self.root.after(200, lambda: self._start_download(url))
 
-    # ─── DOWNLOAD FLOW ───────────────────────────────────
+    # ─── DOWNLOAD ───────────────────────────────────────
 
     def _start_download(self, url: str):
         if not url or "civitai" not in url:
@@ -340,29 +402,23 @@ class CivitaiGUI:
             messagebox.showwarning("No API Key", "Load an API key file first.")
             return
 
-        # Clear URL field
         self.url_var.set("")
-
-        # Create extractor with temp dir
         extractor = CivitaiExtractor(api_key=self.api_key, download_dir=str(self.temp_dir))
 
-        # Create download entry
         entry = DownloadEntry(url, self.dl_inner, extractor, self)
         entry.update_name("Fetching page…")
-        entry.update_status("Connecting…", "#888")
+        entry.update_status("Connecting…")
 
         self.downloads.insert(0, entry)
         self._log(f"Queued: {url[:60]}...")
 
-        # Run in background
         thread = threading.Thread(target=self._run_download, args=(entry,), daemon=True)
         thread.start()
 
     def _run_download(self, entry: DownloadEntry):
         try:
-            # Phase 1: fetch page + parse metadata (no progress yet)
             entry.gui.root.after(0, lambda: entry.update_name("Parsing page…"))
-            entry.gui.root.after(0, lambda: entry.update_status("Fetching metadata…", "#888"))
+            entry.gui.root.after(0, lambda: entry.update_status("Fetching metadata…"))
 
             html = entry.extractor.fetch_page(entry.url)
             model_data = entry.extractor.parse_model_data(html)
@@ -372,27 +428,21 @@ class CivitaiGUI:
             if not file_info:
                 raise ValueError("No downloadable file found")
 
-            # Update UI with metadata
             model_name = model_data.get("name", "Unknown")
             ft = file_info["type"]
             bm = file_info["base_model"]
 
             entry.gui.root.after(0, lambda: entry.update_name(file_info["name"]))
             entry.gui.root.after(0, lambda: entry.update_type(ft, bm))
-            entry.gui.root.after(0, lambda: entry.update_status("Downloading…", "#ccc"))
+            entry.gui.root.after(0, lambda: entry.update_status("Downloading…", entry.t["fg"]))
 
-            # Show first image preview
             if first_image:
-                entry.gui.root.after(0, lambda: self._show_preview(first_image))
+                entry.gui.root.after(0, lambda img=first_image: self._show_preview(img))
 
-            # Progress callback
             def on_progress(downloaded: int, total: int):
                 entry.gui.root.after(0, lambda: entry.update_progress(downloaded, total))
 
-            # Phase 2: download
             dest = entry.extractor.download_file(model_data, file_info, on_progress)
-
-            # Phase 3: save keywords
             txt_path = entry.extractor.save_keywords(model_data, file_info)
             keywords = entry.extractor.extract_keywords(model_data)
 
@@ -412,15 +462,15 @@ class CivitaiGUI:
             entry.result = result
             entry.status = "done"
             entry.gui.root.after(0, lambda: entry.update_status(
-                f"✓ {file_info['size_kb']:.0f} KB · {len(keywords)} keywords — right-click to save", "#4a4"
-            ))
+                f"✓ {file_info['size_kb']:.0f} KB · {len(keywords)} keywords — right-click to save",
+                entry.t["accent"]))
             entry.gui.root.after(0, entry.add_actions)
             entry.gui.root.after(0, lambda: self._log(f"✓ {model_name} ({ft} | {bm})"))
 
         except Exception as e:
             entry.status = "error"
             entry.error = str(e)
-            entry.gui.root.after(0, lambda: entry.update_status(f"✗ {e}", "#e44"))
+            entry.gui.root.after(0, lambda: entry.update_status(f"✗ {e}", entry.t["error"]))
             entry.gui.root.after(0, lambda: self._log(f"✗ Error: {e}"))
 
     def _show_preview(self, url: str):
@@ -436,67 +486,87 @@ class CivitaiGUI:
             img.thumbnail((180, 180), Image.LANCZOS)
             photo = ImageTk.PhotoImage(img)
 
-            self.preview_label.configure(image=photo, text="")
+            self.preview_label.configure(image=photo, text="", bg=self.theme["frame_bg"])
             self.preview_label.image = photo
         except ImportError:
-            self.preview_label.configure(text="(install Pillow for previews)\npip install Pillow", fg="#555")
+            self.preview_label.configure(
+                text="(pillow not installed)\npip install Pillow",
+                image="", fg=self.theme["dim"], bg=self.theme["frame_bg"])
         except Exception as e:
-            self.preview_label.configure(text=f"(preview unavailable)\n{e}", fg="#555")
+            self.preview_label.configure(
+                text=f"(preview error)\n{type(e).__name__}",
+                image="", fg=self.theme["dim"], bg=self.theme["frame_bg"])
 
-    # ─── FOLDER TREE ─────────────────────────────────────
+    # ─── FOLDER TREE ────────────────────────────────────
 
     def _scan_folders(self):
-        """Scan data root for folder structure: data/{type}/{base_model}/{subfolders}"""
+        """Scan root for folder structure: {root}/{type}/{base_model}/subfolders"""
         self.data_root = Path(self.root_var.get().strip())
         self._folder_tree = {}
 
-        data_dir = self.data_root / "data"
-        if not data_dir.is_dir():
-            self._log("Data root has no 'data/' folder yet. Create: data/{type}/{base_model}/")
+        if not self.data_root.is_dir():
+            self._log(f"Base folder not found: {self.data_root}")
             return
 
-        for type_dir in data_dir.iterdir():
+        for type_dir in sorted(self.data_root.iterdir()):
             if not type_dir.is_dir():
                 continue
             file_type = type_dir.name.lower()
-            for model_dir in type_dir.iterdir():
+            for model_dir in sorted(type_dir.iterdir()):
                 if not model_dir.is_dir():
                     continue
                 base_model = model_dir.name.lower()
-                key = (file_type, base_model)
-                subfolders = [d.name for d in model_dir.iterdir() if d.is_dir()]
+                subfolders = sorted(d.name for d in model_dir.iterdir() if d.is_dir())
                 if subfolders:
-                    self._folder_tree[key] = subfolders
+                    self._folder_tree[(file_type, base_model)] = subfolders
 
         count = sum(len(v) for v in self._folder_tree.values())
         self._log(f"Folder tree: {len(self._folder_tree)} type×model combos, {count} subfolders")
 
+    def _dismiss_menu(self, event=None):
+        """Dismiss the active right-click menu on left-click."""
+        if self._active_menu:
+            try:
+                self._active_menu.unpost()
+            except tk.TclError:
+                pass
+            self._active_menu = None
+
     def _show_dest_menu(self, entry: DownloadEntry, event=None):
-        """Show right-click context menu with matching destination folders."""
+        """Show right-click context menu — only one at a time, left-click dismisses."""
         if not entry.result:
             return
+
+        self._dismiss_menu()  # dismiss any existing menu first
+        t = self.theme
 
         ft = entry.result["file_type"].lower()
         bm = entry.result["base_model"].lower()
         key = (ft, bm)
 
-        menu = tk.Menu(self.root, tearoff=0, bg="#333", fg="#d4d4d4")
+        menu = tk.Menu(self.root, tearoff=0, bg=t["entry_bg"], fg=t["fg"],
+                       activebackground=t["button_bg"], activeforeground=t["fg"])
 
+        base_path = self.data_root / ft / bm
         if key in self._folder_tree and self._folder_tree[key]:
-            base_path = self.data_root / "data" / ft / bm
-            for folder in sorted(self._folder_tree[key]):
+            for folder in self._folder_tree[key]:
                 dest = base_path / folder
                 menu.add_command(
                     label=f"📁 {folder}",
-                    command=lambda d=dest: self._move_to(entry, d),
+                    command=lambda d=dest: (self._move_to(entry, d), self._dismiss_menu()),
                 )
         else:
-            menu.add_command(label=f"(no folders under data/{ft}/{bm}/)", state="disabled")
+            menu.add_command(
+                label=f"(no folders under {ft}/{bm}/)",
+                state="disabled")
 
         menu.add_separator()
-        menu.add_command(label="📂 Browse…", command=lambda: self._browse_dest(entry))
-        menu.add_command(label="✕ Remove", command=lambda: self._remove_entry(entry))
+        menu.add_command(label="📂 Browse…",
+                         command=lambda: (self._browse_dest(entry), self._dismiss_menu()))
+        menu.add_command(label="✕ Remove",
+                         command=lambda: (self._remove_entry(entry), self._dismiss_menu()))
 
+        self._active_menu = menu
         if event:
             menu.post(event.x_root, event.y_root)
         else:
@@ -508,10 +578,8 @@ class CivitaiGUI:
             self._move_to(entry, Path(d))
 
     def _move_to(self, entry: DownloadEntry, dest: Path):
-        """Move downloaded file and keywords from temp to destination folder."""
         if not entry.result:
             return
-
         dest.mkdir(parents=True, exist_ok=True)
         src_file = Path(entry.result["file"])
         src_kw = Path(entry.result["keywords_file"])
@@ -524,7 +592,7 @@ class CivitaiGUI:
         if src_kw.exists():
             shutil.move(str(src_kw), str(dest / src_kw.name))
 
-        entry.update_status(f"✓ Saved → {dest}", "#4a4")
+        entry.update_status(f"✓ Saved → {dest}", entry.t["accent"])
         self._log(f"Moved to: {dest}")
 
     def _remove_entry(self, entry: DownloadEntry):
