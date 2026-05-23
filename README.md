@@ -1,12 +1,39 @@
-# Civitai Data Extractor
+# Civitai Data Extractor v2
 
 Desktop GUI tool to download AI models and extract trigger words from [civitai.red](https://civitai.red).
 
 ## What it does
 
-1. **Paste a model URL** (e.g. `https://civitai.red/models/2641591/evelynn-league-of-legends`)
-2. **Downloads** the `.safetensors` file to a configurable folder
-3. **Extracts trigger words** — combines `trainedWords` from model metadata with unique keyword blocks found in the description, saved as `{filename}.txt`
+- **Paste & auto-download** — paste a URL (or copy to clipboard), and the download starts immediately
+- **Progress tracking** — real-time progress bar with MB downloaded
+- **Image preview** — shows the first gallery image from the model page
+- **Trigger word extraction** — combines `trainedWords` with unique description keywords → `{filename}.txt`
+- **Type detection** — identifies LORA, Checkpoint, etc., and the base model (Illustrious, Pony, SDXL…)
+- **Organized saving** — right-click any download to move it into a structured folder tree
+
+## Folder Structure
+
+Create this tree under any root folder (configurable in the GUI):
+
+```
+{root}/data/
+├── lora/
+│   ├── illustrious/
+│   │   ├── folder1/
+│   │   ├── folder2/
+│   │   └── folder3/
+│   └── pony/
+│       ├── folder4/
+│       └── folder5/
+├── checkpoint/
+│   ├── sdxl/
+│   │   └── models/
+│   └── flux/
+│       └── dev/
+└── ...
+```
+
+Right-click a download → matching subfolders appear based on the file's type + base model.
 
 ## Dependencies
 
@@ -14,15 +41,16 @@ Desktop GUI tool to download AI models and extract trigger words from [civitai.r
 |------------|---------|---------|---------|
 | Python | 3.11+ | Runtime | `sudo apt install python3` |
 | Tkinter | — | GUI toolkit | `sudo apt install python3-tk` |
-| stdlib (`json`, `re`, `urllib`, `html`, `pathlib`) | built-in | Page parsing, HTTP, dedup | None (bundled with Python) |
+| Pillow | 9.0+ | Image preview thumbnails | `sudo apt install python3-pillow` |
+| stdlib (`json`, `re`, `urllib`, `html`, `pathlib`, `tempfile`, `shutil`) | built-in | Core logic | None (bundled) |
 
-All dependencies are Python standard library except `python3-tk` (GUI only — not needed for CLI mode).
+Only `python3-tk` and `python3-pillow` need installing — everything else is standard library.
 
 ## Setup
 
 ```bash
 # Install system dependencies (Ubuntu/Debian)
-sudo apt install python3 python3-tk
+sudo apt install python3 python3-tk python3-pillow
 
 # Clone
 git clone https://github.com/alexoutest2000-del/civitai-extractor.git
@@ -33,8 +61,6 @@ cd civitai-extractor
 
 Place your Civitai API key in `~/.api_key_civitai` (a single line of text). The GUI also lets you browse and select any location.
 
-The key is loaded at runtime and never committed to git.
-
 ## Usage
 
 ### GUI (recommended)
@@ -43,9 +69,11 @@ The key is loaded at runtime and never committed to git.
 ./run.sh
 ```
 
-- Paste a civitai.red model URL (Ctrl+V)
-- Select download folder
-- Click **Download**
+1. Load your API key (Browse → Load, or auto-detected from `~/.api_key_civitai`)
+2. Set the **Data Root** folder (where your `data/` tree lives)
+3. Paste a civitai.red URL → auto-downloads to temp
+4. Right-click the completed download → choose destination folder
+5. Click **View Keywords** to see extracted trigger words
 
 ### CLI
 
@@ -55,36 +83,20 @@ python3 extractor.py "https://civitai.red/models/2641591/evelynn-league-of-legen
 
 ## Output
 
-```
-/home/bot/civitai-download/
-├── Evelynn_LOL.safetensors    # 325MB model file
-└── Evelynn_LOL.txt            # 16 trigger word lines
-```
-
-Each `.txt` contains one keyword block per line — trained words first, then unique description blocks.
-
-## How it works
-
-Civitai serves model metadata in a `<script id="__NEXT_DATA__">` JSON blob on each page. The extractor:
-
-1. Fetches the page HTML
-2. Parses `__NEXT_DATA__` → `trpcState` → model data
-3. Extracts `trainedWords` from all model versions
-4. Scans the description for unique comma-separated keyword blocks
-5. Deduplicates (skips blocks that are subsets of trained words)
-6. Downloads the `.safetensors` via `civitai.red/api/download/models/{id}?token={key}`
+Each download produces:
+- `{filename}.safetensors` — the model file (temp until moved)
+- `{filename}.txt` — one trigger word block per line
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `extractor.py` | Core — page parsing, keyword extraction, file download |
-| `gui.py` | Tkinter GUI with paste shortcut and progress display |
+| `extractor.py` | Core — page parsing, keyword extraction, file download with progress |
+| `gui.py` | Tkinter GUI — clipboard watch, progress bars, image preview, folder tree |
 | `run.sh` | Launcher script |
 
 ## Security
 
-- API key stored outside repo (`/home/bot/projects/.api_key_civitai`, `chmod 600`)
+- API key stored outside repo, loaded at runtime
 - No hardcoded credentials in source
-- Stdlib-only dependencies (no supply chain risk)
-- Reviewed per `security-analyst` checklist — [PASS]
+- Minimal dependencies (stdlib + tk + pillow)

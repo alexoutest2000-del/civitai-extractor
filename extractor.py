@@ -1,22 +1,24 @@
 """
 Civitai Extractor — core extraction and download logic.
-Handles: page parsing, keyword extraction, deduplication, file download.
+Handles: page parsing, keyword extraction, deduplication, file download with progress.
 """
 
 import json
 import re
 import os
+import tempfile
 import urllib.request
 from html import unescape
 from pathlib import Path
+from typing import Callable
 
 
 class CivitaiExtractor:
     """Extract model metadata and download files from civitai.red."""
 
-    def __init__(self, api_key: str, download_dir: str = "/home/bot/civitai-download"):
+    def __init__(self, api_key: str, download_dir: str | None = None):
         self.api_key = api_key
-        self.download_dir = Path(download_dir)
+        self.download_dir = Path(download_dir) if download_dir else Path(tempfile.mkdtemp(prefix="civitai_"))
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
     def fetch_page(self, url: str) -> str:
@@ -44,46 +46,43 @@ class CivitaiExtractor:
                 return d
         raise ValueError("No model data found in page")
 
+    def get_first_image(self, html: str) -> str | None:
+        """Extract the first model image URL from the page HTML or description."""
+        # Images in __NEXT_DATA__ JSON use escaped quotes: src=\"...\"
+        imgs = re.findall(r'src=\\"(https://image\.civitai\.com[^"]+)\\"', html)
+        if not imgs:
+            # Fallback: regular quotes (e.g. in description field)
+            imgs = re.findall(r'src="(https://image\.civitai\.com[^"]+)"', html)
+        return imgs[0] if imgs else None
+
     def extract_keywords(self, model_data: dict) -> list[str]:
-        """
-        Extract trigger words from model data.
-        Returns deduplicated list: trainedWords + unique description blocks.
-        """
-        # 1. Collect trainedWords from all versions
+        """Extract trigger words. Returns deduplicated list."""
         trained_words: list[str] = []
         for v in model_data.get("modelVersions", []):
             for word in v.get("trainedWords", []):
                 word = word.strip()
-                # Skip placeholder entries
                 if word.lower().startswith("see model info"):
                     continue
                 trained_words.append(word)
 
-        # 2. Parse description for keyword blocks
         desc_html = model_data.get("description", "")
         desc_html = re.sub(r'<(?:br|/p|/div)\s*/?>', '\n', desc_html)
         desc_text = re.sub(r'<[^>]+>', '', desc_html)
         desc_text = unescape(desc_text)
         desc_text = re.sub(r'[ \t]+', ' ', desc_text).strip()
 
-        # Extract comma-separated blocks (3+ items) from each line separately
         desc_blocks = []
         for line in desc_text.split('\n'):
             line = line.strip()
             if not line:
                 continue
-            blocks = re.findall(
-                r'(?:[\w\s#.-]+(?:,\s*[\w\s#.-]+){2,})',
-                line
-            )
+            blocks = re.findall(r'(?:[\w\s#.-]+(?:,\s*[\w\s#.-]+){2,})', line)
             desc_blocks.extend(b.strip().rstrip(",") for b in blocks)
 
-        # 3. Deduplicate: skip description blocks that are subsets of trainedWords
         trained_kw_sets = [
             set(k.strip().lower() for k in tw.split(",") if k.strip())
             for tw in trained_words
         ]
-
         new_blocks = []
         for block in desc_blocks:
             block_kw = set(k.strip().lower() for k in block.split(",") if k.strip())
@@ -104,31 +103,47 @@ class CivitaiExtractor:
                     "name": f["name"],
                     "url": f["url"],
                     "size_kb": f.get("sizeKB", 0),
+                    "size_bytes": int(f.get("sizeKB", 0) * 1024),
                     "version_id": v["id"],
+                    "type": model_data.get("type", "Unknown"),
+                    "base_model": v.get("baseModel", "Unknown"),
+                    "base_model_type": v.get("baseModelType", ""),
                 }
         return None
 
-    def download_file(self, model_data: dict, file_info: dict) -> Path:
-        """Download the model file and return the local path."""
+    def download_file(
+        self,
+        model_data: dict,
+        file_info: dict,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> Path:
+        """Download the model file with progress tracking. Returns local path."""
         version_id = file_info["version_id"]
         filename = file_info["name"]
         dest = self.download_dir / filename
-
-        if dest.exists():
-            return dest  # Already downloaded
+        total_bytes = file_info.get("size_bytes", 0)
 
         api_url = f"https://civitai.red/api/download/models/{version_id}?token={self.api_key}"
 
         req = urllib.request.Request(api_url, method="GET")
         req.add_header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
 
-        with urllib.request.urlopen(req, timeout=300) as resp:
+        downloaded = 0
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            # Try to get actual content-length from response headers
+            cl = resp.headers.get("Content-Length")
+            if cl:
+                total_bytes = int(cl)
+
             with open(dest, "wb") as f:
                 while True:
-                    chunk = resp.read(8192)
+                    chunk = resp.read(65536)
                     if not chunk:
                         break
                     f.write(chunk)
+                    downloaded += len(chunk)
+                    if progress_callback and total_bytes:
+                        progress_callback(downloaded, total_bytes)
 
         return dest
 
@@ -145,7 +160,11 @@ class CivitaiExtractor:
 
         return txt_path
 
-    def process(self, url: str) -> dict:
+    def process(
+        self,
+        url: str,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> dict:
         """Full pipeline: fetch → parse → download → save keywords."""
         html = self.fetch_page(url)
         model_data = self.parse_model_data(html)
@@ -154,32 +173,33 @@ class CivitaiExtractor:
         if not file_info:
             raise ValueError("No downloadable file found on this page")
 
+        first_image = self.get_first_image(html)
         model_name = model_data.get("name", "Unknown")
-        print(f"Model: {model_name}")
-        print(f"File: {file_info['name']} ({file_info['size_kb']:.0f} KB)")
+        keywords = self.extract_keywords(model_data)
 
         # Download
-        print("Downloading...")
-        dest = self.download_file(model_data, file_info)
-        print(f"Saved: {dest}")
+        dest = self.download_file(model_data, file_info, progress_callback)
 
-        # Keywords
+        # Save keywords
         txt_path = self.save_keywords(model_data, file_info)
-        keywords = self.extract_keywords(model_data)
-        print(f"Keywords: {len(keywords)} lines → {txt_path}")
 
         return {
             "model_name": model_name,
             "file": str(dest),
+            "file_name": file_info["name"],
+            "file_type": file_info["type"],
+            "base_model": file_info["base_model"],
+            "size_kb": file_info["size_kb"],
             "keywords_file": str(txt_path),
             "keyword_count": len(keywords),
+            "keywords": keywords,
+            "first_image": first_image,
         }
 
 
 if __name__ == "__main__":
     import sys
 
-    # Try common paths
     key_paths = [
         os.path.expanduser("~/.api_key_civitai"),
         "/home/bot/projects/.api_key_civitai",
@@ -199,4 +219,8 @@ if __name__ == "__main__":
     extractor = CivitaiExtractor(api_key)
     url = sys.argv[1] if len(sys.argv) > 1 else input("URL: ")
     result = extractor.process(url)
-    print(f"\nDone! {result}")
+    print(f"\nDone! {result['model_name']} ({result['file_type']} | {result['base_model']})")
+    print(f"  File: {result['file_name']} ({result['size_kb']:.0f} KB)")
+    print(f"  Keywords: {result['keyword_count']} lines")
+    if result.get("first_image"):
+        print(f"  Preview: {result['first_image']}")
