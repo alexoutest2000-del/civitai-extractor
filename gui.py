@@ -58,6 +58,7 @@ class DownloadEntry:
         self.error = None
         self.status = "queued"
         self.progress_pct = 0
+        self.first_image = None
         self._build()
 
     @property
@@ -91,6 +92,7 @@ class DownloadEntry:
 
         for w in [self.frame, self.name_label, self.type_label, self.status_label, self.progress]:
             w.bind("<Button-3>", self._on_right_click)
+            w.bind("<Button-1>", self._on_left_click, add="+")
 
     def update_name(self, name: str):
         self.name_label.configure(text=name[:60])
@@ -130,6 +132,12 @@ class DownloadEntry:
 
         for w in [kw_btn, save_btn, actions]:
             w.bind("<Button-3>", self._on_right_click)
+
+    def _on_left_click(self, event=None):
+        """Show preview image on left-click."""
+        img = self.first_image or (self.result or {}).get("first_image")
+        if img:
+            self.gui._show_preview(img)
 
     def _on_right_click(self, event=None):
         if not self.result:
@@ -375,6 +383,7 @@ class CivitaiGUI:
     # ─── CLIPBOARD ──────────────────────────────────────
 
     def _clipboard_watcher(self):
+        """Auto-fill URL field when civitai URL is copied. Does NOT auto-start download."""
         try:
             clip = self.root.clipboard_get()
             if clip and clip != self._last_clipboard and "civitai" in clip:
@@ -382,14 +391,15 @@ class CivitaiGUI:
                 url = clip.strip()
                 if url.startswith("http"):
                     self.url_var.set(url)
-                    self._start_download(url)
+                    # Download only starts on paste (Ctrl+V) or Enter, not on clipboard copy
         except Exception:
             pass
         self.root.after(500, self._clipboard_watcher)
 
     def _check_clipboard_paste(self):
+        """Triggered after Ctrl+V paste into URL field — start download."""
         url = self.url_var.get().strip()
-        if url and "civitai" in url and url != self._last_clipboard:
+        if url and "civitai" in url:
             self._last_clipboard = url
             self.root.after(200, lambda: self._start_download(url))
 
@@ -436,8 +446,9 @@ class CivitaiGUI:
             entry.gui.root.after(0, lambda: entry.update_type(ft, bm))
             entry.gui.root.after(0, lambda: entry.update_status("Downloading…", entry.t["fg"]))
 
+            # Preview is now shown on left-click, not automatically
             if first_image:
-                entry.gui.root.after(0, lambda img=first_image: self._show_preview(img))
+                entry.gui.root.after(0, lambda img=first_image: setattr(entry, 'first_image', img))
 
             def on_progress(downloaded: int, total: int):
                 entry.gui.root.after(0, lambda: entry.update_progress(downloaded, total))
@@ -500,7 +511,8 @@ class CivitaiGUI:
     # ─── FOLDER TREE ────────────────────────────────────
 
     def _scan_folders(self):
-        """Scan root for folder structure: {root}/{type}/{base_model}/subfolders"""
+        """Scan root for folder structure: {root}/{type}[/{base_model}]/subfolders.
+        Checkpoints skip the base_model layer."""
         self.data_root = Path(self.root_var.get().strip())
         self._folder_tree = {}
 
@@ -512,13 +524,20 @@ class CivitaiGUI:
             if not type_dir.is_dir():
                 continue
             file_type = type_dir.name.lower()
-            for model_dir in sorted(type_dir.iterdir()):
-                if not model_dir.is_dir():
-                    continue
-                base_model = model_dir.name.lower()
-                subfolders = sorted(d.name for d in model_dir.iterdir() if d.is_dir())
+
+            if file_type in ("checkpoint", "checkpoints"):
+                # Checkpoints: no base_model layer — subfolders directly under type
+                subfolders = sorted(d.name for d in type_dir.iterdir() if d.is_dir())
                 if subfolders:
-                    self._folder_tree[(file_type, base_model)] = subfolders
+                    self._folder_tree[(file_type, None)] = subfolders
+            else:
+                for model_dir in sorted(type_dir.iterdir()):
+                    if not model_dir.is_dir():
+                        continue
+                    base_model = model_dir.name.lower()
+                    subfolders = sorted(d.name for d in model_dir.iterdir() if d.is_dir())
+                    if subfolders:
+                        self._folder_tree[(file_type, base_model)] = subfolders
 
         count = sum(len(v) for v in self._folder_tree.values())
         self._log(f"Folder tree: {len(self._folder_tree)} type×model combos, {count} subfolders")
@@ -542,12 +561,17 @@ class CivitaiGUI:
 
         ft = entry.result["file_type"].lower()
         bm = entry.result["base_model"].lower()
-        key = (ft, bm)
 
         menu = tk.Menu(self.root, tearoff=0, bg=t["entry_bg"], fg=t["fg"],
                        activebackground=t["button_bg"], activeforeground=t["fg"])
 
-        base_path = self.data_root / ft / bm
+        # Checkpoints skip the base_model directory level
+        if ft in ("checkpoint", "checkpoints"):
+            base_path = self.data_root / ft
+            key = (ft, None)
+        else:
+            base_path = self.data_root / ft / bm
+            key = (ft, bm)
         if key in self._folder_tree and self._folder_tree[key]:
             for folder in self._folder_tree[key]:
                 dest = base_path / folder
@@ -556,8 +580,9 @@ class CivitaiGUI:
                     command=lambda d=dest: (self._move_to(entry, d), self._dismiss_menu()),
                 )
         else:
+            label = f"(no folders under {ft}/)" if ft in ("checkpoint", "checkpoints") else f"(no folders under {ft}/{bm}/)"
             menu.add_command(
-                label=f"(no folders under {ft}/{bm}/)",
+                label=label,
                 state="disabled")
 
         menu.add_separator()
@@ -591,6 +616,15 @@ class CivitaiGUI:
         shutil.move(str(src_file), str(dest / src_file.name))
         if src_kw.exists():
             shutil.move(str(src_kw), str(dest / src_kw.name))
+
+        # Purge leftover temp files sharing the same base name
+        base = src_file.stem
+        for leftover in list(self.temp_dir.iterdir()):
+            if leftover.is_file() and leftover.stem == base:
+                try:
+                    leftover.unlink()
+                except OSError:
+                    pass
 
         entry.update_status(f"✓ Saved → {dest}", entry.t["accent"])
         self._log(f"Moved to: {dest}")
