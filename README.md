@@ -8,11 +8,21 @@ Desktop GUI tool to download AI models and extract trigger words from [civitai.r
 2. **Downloads** the `.safetensors` file to a configurable folder
 3. **Extracts trigger words** — combines `trainedWords` from model metadata with unique keyword blocks found in the description, saved as `{filename}.txt`
 
+## Dependencies
+
+| Dependency | Version | Purpose | Install |
+|------------|---------|---------|---------|
+| Python | 3.11+ | Runtime | `sudo apt install python3` |
+| Tkinter | — | GUI toolkit | `sudo apt install python3-tk` |
+| stdlib (`json`, `re`, `urllib`, `html`, `pathlib`) | built-in | Page parsing, HTTP, dedup | None (bundled with Python) |
+
+All dependencies are Python standard library except `python3-tk` (GUI only — not needed for CLI mode).
+
 ## Setup
 
 ```bash
-# Requires Python 3.11+ with tkinter
-sudo apt install python3-tk
+# Install system dependencies (Ubuntu/Debian)
+sudo apt install python3 python3-tk
 
 # Clone
 git clone https://github.com/alexoutest2000-del/civitai-extractor.git
@@ -21,7 +31,7 @@ cd civitai-extractor
 
 ## API Key
 
-Place your Civitai API key in `/home/bot/projects/.api_key_civitai` (a single line of text).
+Place your Civitai API key in `~/.api_key_civitai` (a single line of text). The GUI also lets you browse and select any location.
 
 The key is loaded at runtime and never committed to git.
 
