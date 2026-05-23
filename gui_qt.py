@@ -330,15 +330,43 @@ class MainWindow(QMainWindow):
         self._nam = QNetworkAccessManager()
         self._preview_replies: list = []  # prevent GC
 
+        # Config persistence
+        self._config_path = Path.home() / ".config" / "civitai-extractor"
+        self._config_path.mkdir(parents=True, exist_ok=True)
+        self._config_file = self._config_path / "settings.json"
+        self._config = self._load_config()
+
         # Paths
         self.temp_dir = Path.home() / ".cache" / "civitai-temp"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
-        self.data_root = Path.home() / "civitai-data"
+        self.data_root = Path(self._config.get("data_root", Path.home() / "civitai-data"))
         self.data_root.mkdir(parents=True, exist_ok=True)
+        self._saved_key_path = self._config.get("key_path", "")
 
         self._setup_ui()
         self._try_load_api_key()
         self._scan_folders()
+
+    # ─── CONFIG PERSISTENCE ────────────────────────────
+
+    def _load_config(self) -> dict:
+        """Load saved preferences from settings.json."""
+        if self._config_file.is_file():
+            try:
+                import json
+                return json.loads(self._config_file.read_text())
+            except Exception:
+                pass
+        return {}
+
+    def _save_config(self):
+        """Persist current preferences."""
+        import json
+        cfg = {
+            "data_root": str(self.data_root),
+            "key_path": self.key_path_input.text().strip(),
+        }
+        self._config_file.write_text(json.dumps(cfg, indent=2))
 
     # ─── UI SETUP ──────────────────────────────────────
 
@@ -465,6 +493,7 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Select API Key File")
         if path:
             self.key_path_input.setText(path)
+            self._save_config()
 
     def _load_key(self):
         p = Path(self.key_path_input.text().strip())
@@ -474,11 +503,14 @@ class MainWindow(QMainWindow):
         self.api_key = p.read_text().strip()
         self.key_status.setText("✓ Loaded")
         self.key_status.setStyleSheet("color: #4a4; padding-left: 6px;")
+        self._save_config()
         self.status_bar.showMessage(f"API key loaded from {p.name}")
 
     def _try_load_api_key(self):
-        for p in [Path.home() / ".api_key_civitai", Path("/home/bot/projects/.api_key_civitai")]:
-            if p.is_file():
+        for p in [Path(self._saved_key_path) if self._saved_key_path else None,
+                  Path.home() / ".api_key_civitai",
+                  Path("/home/bot/projects/.api_key_civitai")]:
+            if p and p.is_file():
                 self.key_path_input.setText(str(p))
                 self.api_key = p.read_text().strip()
                 self.key_status.setText("✓ Loaded")
@@ -492,6 +524,7 @@ class MainWindow(QMainWindow):
         if d:
             self.base_folder_input.setText(d)
             self._scan_folders()
+            self._save_config()
 
     def _scan_folders(self):
         self.data_root = Path(self.base_folder_input.text().strip())
