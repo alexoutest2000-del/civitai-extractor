@@ -228,6 +228,7 @@ class DownloadEntryWidget(QWidget):
                 border-radius: 5px;
             }
         """)
+        self._card_normal_ss = self._card.styleSheet()
         outer.addWidget(self._card)
 
         layout = QVBoxLayout(self._card)
@@ -298,6 +299,19 @@ class DownloadEntryWidget(QWidget):
         self.actions_widget = QWidget()
         self.actions_widget.setLayout(self.actions_row)
         layout.addWidget(self.actions_widget)
+
+    def set_highlighted(self, on: bool):
+        """Toggle light-yellow selection border on the card."""
+        if on:
+            self._card.setStyleSheet("""
+                QWidget {
+                    background: #2a2a2a;
+                    border: 2px solid #e8d44d;
+                    border-radius: 5px;
+                }
+            """)
+        else:
+            self._card.setStyleSheet(self._card_normal_ss)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -580,8 +594,8 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"Downloading: {url[:60]}...")
 
     def _on_metadata(self, entry: DownloadEntryWidget, data: dict):
-        entry.name_label.setText(data["file_name"][:80])
-        entry.type_label.setText(f"{data['file_type']} | {data['base_model']}")
+        entry.name_label.setText(data["model_name"][:80])
+        entry.type_label.setText(f"{data['file_name']} · {data['file_type']} · {data['base_model']}")
 
     def _on_progress(self, entry: DownloadEntryWidget, pct: float):
         entry.progress.setValue(int(pct))
@@ -612,7 +626,10 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"✗ Error: {msg}")
 
     def _on_preview_clicked(self, entry: DownloadEntryWidget):
+        if self._active_entry and self._active_entry is not entry:
+            self._active_entry.set_highlighted(False)
         self._active_entry = entry
+        entry.set_highlighted(True)
         img = entry.first_image_url or (entry.result or {}).get("first_image")
         if img:
             self._show_preview(img)
@@ -784,6 +801,8 @@ class MainWindow(QMainWindow):
 
     def _kill_entry(self, entry: DownloadEntryWidget):
         """Remove entry from UI and purge its temp files."""
+        if self._active_entry is entry:
+            self._active_entry = None
         if entry.result:
             for key in ("file", "keywords_file"):
                 fp = entry.result.get(key)
