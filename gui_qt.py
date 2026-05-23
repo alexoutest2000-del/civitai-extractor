@@ -48,6 +48,11 @@ QPushButton {
 }
 QPushButton:hover { background: #4a4a4a; }
 QPushButton:pressed { background: #2a2a2a; }
+QPushButton:disabled {
+    color: #555;
+    background: #2a2a2a;
+    border-color: #3a3a3a;
+}
 QProgressBar {
     background: #333;
     border: none;
@@ -269,26 +274,29 @@ class DownloadEntryWidget(QWidget):
         self.progress.setFormat("Waiting...")
         layout.addWidget(self.progress)
 
-        # Actions row (hidden until done)
+        # Actions row (always visible — buttons enabled only when done)
         self.actions_row = QHBoxLayout()
         self.actions_row.setSpacing(8)
 
-        kw_btn = QPushButton("Keywords")
-        kw_btn.setStyleSheet("font-size: 10px; padding: 3px 10px;")
-        kw_btn.clicked.connect(self._view_keywords)
-        kw_btn.setCursor(Qt.ArrowCursor)
-        self.actions_row.addWidget(kw_btn)
+        self.kw_btn = QPushButton("Keywords")
+        self.kw_btn.setMinimumHeight(30)
+        self.kw_btn.setStyleSheet("font-size: 12px; padding: 5px 16px;")
+        self.kw_btn.clicked.connect(self._view_keywords)
+        self.kw_btn.setCursor(Qt.ArrowCursor)
+        self.kw_btn.setEnabled(False)
+        self.actions_row.addWidget(self.kw_btn)
 
-        save_btn = QPushButton("Save To…")
-        save_btn.setStyleSheet("font-size: 10px; padding: 3px 10px;")
-        save_btn.clicked.connect(lambda: self.menu_requested.emit(self))
-        save_btn.setCursor(Qt.ArrowCursor)
-        self.actions_row.addWidget(save_btn)
+        self.save_btn = QPushButton("Save To…")
+        self.save_btn.setMinimumHeight(30)
+        self.save_btn.setStyleSheet("font-size: 12px; padding: 5px 16px;")
+        self.save_btn.clicked.connect(lambda: self.menu_requested.emit(self))
+        self.save_btn.setCursor(Qt.ArrowCursor)
+        self.save_btn.setEnabled(False)
+        self.actions_row.addWidget(self.save_btn)
 
         self.actions_row.addStretch()
         self.actions_widget = QWidget()
         self.actions_widget.setLayout(self.actions_row)
-        self.actions_widget.hide()
         layout.addWidget(self.actions_widget)
 
     def mousePressEvent(self, event):
@@ -590,13 +598,8 @@ class MainWindow(QMainWindow):
         entry.progress.setStyleSheet(
             "QProgressBar { background: #333; } QProgressBar::chunk { background: #4a4; }"
         )
-        entry.actions_widget.show()
-        # Update item size hint now that actions row is visible
-        for i in range(self.queue_list.count()):
-            item = self.queue_list.item(i)
-            if self.queue_list.itemWidget(item) is entry:
-                item.setSizeHint(entry.sizeHint())
-                break
+        entry.kw_btn.setEnabled(True)
+        entry.save_btn.setEnabled(True)
         self.status_bar.showMessage(
             f"✓ {result['model_name']} ({result['file_type']} | {result['base_model']})"
         )
