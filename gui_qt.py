@@ -301,12 +301,13 @@ class DownloadEntryWidget(QWidget):
         layout.addWidget(self.actions_widget)
 
     def set_highlighted(self, on: bool):
-        """Toggle light-yellow selection border on the card."""
+        """Toggle light-yellow left-edge accent on the card."""
         if on:
             self._card.setStyleSheet("""
                 QWidget {
                     background: #2a2a2a;
-                    border: 2px solid #e8d44d;
+                    border: 1px solid #3a3a3a;
+                    border-left: 3px solid #e8d44d;
                     border-radius: 5px;
                 }
             """)
@@ -483,6 +484,12 @@ class MainWindow(QMainWindow):
         hdr.setObjectName("section_header")
         right_layout.addWidget(hdr)
 
+        self.preview_title = QLabel("")
+        self.preview_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #d4d4d4; padding: 2px 0;")
+        self.preview_title.setWordWrap(True)
+        self.preview_title.hide()
+        right_layout.addWidget(self.preview_title)
+
         self.preview_label = QLabel()
         self.preview_label.setObjectName("preview_label")
         self.preview_label.setAlignment(Qt.AlignCenter)
@@ -630,6 +637,13 @@ class MainWindow(QMainWindow):
             self._active_entry.set_highlighted(False)
         self._active_entry = entry
         entry.set_highlighted(True)
+        # Set title above preview
+        title = (entry.result or {}).get("model_name") or entry.name_label.text()
+        if title and title != "Queued...":
+            self.preview_title.setText(title)
+            self.preview_title.show()
+        else:
+            self.preview_title.hide()
         img = entry.first_image_url or (entry.result or {}).get("first_image")
         if img:
             self._show_preview(img)
