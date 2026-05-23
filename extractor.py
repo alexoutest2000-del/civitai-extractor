@@ -37,6 +37,20 @@ def _get_bucket(username: str) -> str | None:
 
 
 
+def _is_avatar_url(url: str) -> bool:
+    """Return True if this looks like a user avatar/profile image, not a model image."""
+    # Avatar/profiles use small widths: 96, 64, 128
+    # Also: /user in path is always a user profile decoration
+    if "/user" in url:
+        return True
+    width_match = re.search(r"width=(\d+)", url)
+    if width_match:
+        w = int(width_match.group(1))
+        if w <= 128:
+            return True
+    return False
+
+
 class CivitaiExtractor:
     """Extract model metadata and download files from civitai.red."""
 
@@ -87,6 +101,7 @@ class CivitaiExtractor:
                         return url
 
         # 2. Showcase image from __NEXT_DATA__ (civitai.red)
+        # Only use images from model-related queries, not user profiles.
         try:
             nd_match = re.search(
                 r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
@@ -99,11 +114,13 @@ class CivitaiExtractor:
                 username = None
                 for q in queries:
                     d = q["state"]["data"]
-                    if isinstance(d, dict):
-                        if "image" in d and isinstance(d["image"], dict):
-                            showcase_uuid = d["image"].get("url")
-                        if "user" in d and isinstance(d["user"], dict):
-                            username = d["user"].get("username")
+                    if not isinstance(d, dict):
+                        continue
+                    # User data queries often have "username" at top level — skip those
+                    if "image" in d and isinstance(d["image"], dict) and "username" not in d:
+                        showcase_uuid = d["image"].get("url")
+                    if "user" in d and isinstance(d["user"], dict):
+                        username = d["user"].get("username")
                 if showcase_uuid and username:
                     bucket = _get_bucket(username)
                     if bucket:
@@ -111,11 +128,14 @@ class CivitaiExtractor:
         except Exception:
             pass
 
-        # 3. Fallback: HTML regex
-        imgs = re.findall(r'src=\\"(https://image\.civitai\.com[^"]+)\\"', html)
+        # 3. Fallback: HTML regex — prefer model showcase images over avatars
+        imgs = re.findall(r'src="(https://image\.civitai\.com[^"]+)"', html)
+        # Also try escaped-quote variant (some pages use \")
         if not imgs:
-            imgs = re.findall(r'src="(https://image\.civitai\.com[^"]+)"', html)
-        return imgs[0] if imgs else None
+            imgs = re.findall(r'src=\\"(https://image\.civitai\.com[^"]+)\\"', html)
+        # Filter out avatar/profile images (small widths = user pics)
+        model_imgs = [u for u in imgs if not _is_avatar_url(u)]
+        return (model_imgs or imgs)[0] if (model_imgs or imgs) else None
 
     def extract_keywords(self, model_data: dict) -> list[str]:
         """Extract trigger words. Returns deduplicated list."""
