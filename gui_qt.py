@@ -476,6 +476,13 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("Ready")
 
     def _build_toolbar(self, root):
+        # Wrap all toolbar rows in a fixed-height container so they stick together
+        toolbar = QWidget()
+        toolbar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        tb = QVBoxLayout(toolbar)
+        tb.setContentsMargins(0, 0, 0, 4)
+        tb.setSpacing(6)
+
         # API Key row
         key_row = QHBoxLayout()
         key_row.setSpacing(6)
@@ -494,7 +501,7 @@ class MainWindow(QMainWindow):
         self.key_status.setStyleSheet("color: #e44; padding-left: 6px;")
         key_row.addWidget(self.key_status)
         key_row.addStretch()
-        root.addLayout(key_row)
+        tb.addLayout(key_row)
 
         # URL row
         url_row = QHBoxLayout()
@@ -505,7 +512,7 @@ class MainWindow(QMainWindow):
         self.url_input.returnPressed.connect(self._start_download)
         self.url_input.url_pasted.connect(self._on_url_pasted)
         url_row.addWidget(self.url_input)
-        root.addLayout(url_row)
+        tb.addLayout(url_row)
 
         # Base folder row
         folder_row = QHBoxLayout()
@@ -520,54 +527,55 @@ class MainWindow(QMainWindow):
         btn.clicked.connect(self._scan_folders)
         folder_row.addWidget(btn)
         folder_row.addStretch()
-        root.addLayout(folder_row)
+        tb.addLayout(folder_row)
+
+        root.addWidget(toolbar)
 
     def _build_splitter(self, root):
         splitter = QSplitter(Qt.Horizontal)
 
-        # ── Left: download queue ──
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-
+        # ── Downloads ──
+        downloads = QWidget()
+        dl_layout = QVBoxLayout(downloads)
+        dl_layout.setContentsMargins(0, 0, 4, 0)
         hdr = QLabel("DOWNLOADS")
         hdr.setObjectName("section_header")
-        left_layout.addWidget(hdr)
-
+        dl_layout.addWidget(hdr)
         self.queue_list = QListWidget()
         self.queue_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         self.queue_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.queue_list.customContextMenuRequested.connect(self._queue_context_menu)
-        left_layout.addWidget(self.queue_list)
-        splitter.addWidget(left)
+        dl_layout.addWidget(self.queue_list)
+        splitter.addWidget(downloads)
 
-        # ── Right: preview + folder tree ──
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(8)
-
+        # ── Preview ──
+        preview = QWidget()
+        pv_layout = QVBoxLayout(preview)
+        pv_layout.setContentsMargins(4, 0, 4, 0)
+        pv_layout.setSpacing(6)
         hdr = QLabel("PREVIEW")
         hdr.setObjectName("section_header")
-        right_layout.addWidget(hdr)
-
+        pv_layout.addWidget(hdr)
         self.preview_title = QLabel("")
         self.preview_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #d4d4d4; padding: 2px 0;")
         self.preview_title.setWordWrap(True)
         self.preview_title.hide()
-        right_layout.addWidget(self.preview_title)
-
+        pv_layout.addWidget(self.preview_title)
         self.preview_label = QLabel()
         self.preview_label.setObjectName("preview_label")
         self.preview_label.setAlignment(Qt.AlignCenter)
-        self.preview_label.setMinimumHeight(200)
+        self.preview_label.setMinimumHeight(150)
         self.preview_label.setText("No preview")
-        right_layout.addWidget(self.preview_label)
+        pv_layout.addWidget(self.preview_label)
+        splitter.addWidget(preview)
 
+        # ── Folders ──
+        folders = QWidget()
+        fd_layout = QVBoxLayout(folders)
+        fd_layout.setContentsMargins(4, 0, 0, 0)
         hdr = QLabel("FOLDERS")
         hdr.setObjectName("section_header")
-        right_layout.addWidget(hdr)
-
+        fd_layout.addWidget(hdr)
         self.folder_tree = QTreeView()
         self.folder_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.folder_tree.customContextMenuRequested.connect(self._folder_context_menu)
@@ -579,10 +587,10 @@ class MainWindow(QMainWindow):
         self.folder_tree.setRootIndex(root_idx)
         for col in (1, 2, 3):
             self.folder_tree.setColumnHidden(col, True)
-        right_layout.addWidget(self.folder_tree)
+        fd_layout.addWidget(self.folder_tree)
+        splitter.addWidget(folders)
 
-        splitter.addWidget(right)
-        splitter.setSizes([550, 400])
+        splitter.setSizes([380, 320, 250])
         root.addWidget(splitter)
 
     # ─── API KEY ───────────────────────────────────────
