@@ -133,6 +133,17 @@ QLabel#section_header {
 }
 """
 
+# ─── URL LINE EDIT (paste detection) ─────────────────────
+
+class UrlLineEdit(QLineEdit):
+    """QLineEdit that auto-triggers download when a URL is pasted."""
+    url_pasted = Signal()
+
+    def insertFromMimeData(self, source):
+        super().insertFromMimeData(source)
+        self.url_pasted.emit()
+
+
 # ─── DOWNLOAD WORKER ────────────────────────────────────
 
 
@@ -440,9 +451,10 @@ class MainWindow(QMainWindow):
         url_row = QHBoxLayout()
         url_row.setSpacing(6)
         url_row.addWidget(QLabel("Model URL:"))
-        self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("Paste civitai URL and press Enter…")
+        self.url_input = UrlLineEdit()
+        self.url_input.setPlaceholderText("Paste civitai URL…")
         self.url_input.returnPressed.connect(self._start_download)
+        self.url_input.url_pasted.connect(self._on_url_pasted)
         url_row.addWidget(self.url_input)
         root.addLayout(url_row)
 
@@ -573,6 +585,16 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"Folder tree: {self.data_root}")
 
     # ─── DOWNLOAD FLOW ─────────────────────────────────
+
+    def _on_url_pasted(self):
+        """Auto-start download after paste (short delay to let text settle)."""
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(50, self._check_pasted_url)
+
+    def _check_pasted_url(self):
+        url = self.url_input.text().strip()
+        if url and "civitai" in url:
+            self._start_download()
 
     def _start_download(self):
         url = self.url_input.text().strip()
