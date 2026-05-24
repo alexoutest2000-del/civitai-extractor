@@ -352,17 +352,55 @@ class DownloadEntryWidget(QWidget):
     def _view_keywords(self):
         if not self.result:
             return
-        from PySide6.QtWidgets import QDialog, QTextEdit
+        from PySide6.QtWidgets import QDialog, QTextEdit, QDialogButtonBox
+
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Keywords — {self.result['model_name']}")
-        dlg.resize(500, 400)
+        dlg.resize(550, 450)
         dlg.setStyleSheet("background: #1e1e1e;")
-        txt = QTextEdit(dlg)
-        txt.setReadOnly(True)
-        txt.setStyleSheet("font-family: monospace; font-size: 11px; color: #d4d4d4; background: #252525; border: none;")
-        txt.setPlainText("\n".join(self.result.get("keywords", [])))
+
         layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        txt = QTextEdit(dlg)
+        txt.setStyleSheet(
+            "font-family: monospace; font-size: 11px; color: #d4d4d4;"
+            " background: #252525; border: 1px solid #444; border-radius: 4px;"
+        )
+        txt.setPlainText("\n".join(self.result.get("keywords", [])))
         layout.addWidget(txt)
+
+        # Buttons
+        buttons = QDialogButtonBox(dlg)
+        save_btn = buttons.addButton("Save", QDialogButtonBox.ButtonRole.AcceptRole)
+        close_btn = buttons.addButton(QDialogButtonBox.StandardButton.Close)
+        buttons.setStyleSheet(
+            "QPushButton { padding: 6px 20px; font-size: 12px; }"
+        )
+        layout.addWidget(buttons)
+
+        def on_save():
+            new_keywords = [kw.strip() for kw in txt.toPlainText().split("\n") if kw.strip()]
+            self.result["keywords"] = new_keywords
+            self.result["keyword_count"] = len(new_keywords)
+            # Write back to the .txt file
+            kw_path = self.result.get("keywords_file")
+            if kw_path:
+                from pathlib import Path
+                Path(kw_path).write_text("\n".join(new_keywords) + "\n")
+            # Update the progress bar format
+            if self.result.get("size_kb"):
+                self.progress.setFormat(
+                    f"✓ {self.result.get('file_type', '')} · "
+                    f"{self.result['size_kb']:.0f} KB · "
+                    f"{len(new_keywords)} keywords"
+                )
+            dlg.accept()
+
+        save_btn.clicked.connect(on_save)
+        close_btn.clicked.connect(dlg.reject)
+
         dlg.exec()
 
 
