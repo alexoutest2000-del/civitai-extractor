@@ -804,12 +804,36 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"Source file missing: {src_file}")
             return
 
+        # Check for existing files in destination
+        existing = []
+        for src, label in [
+            (src_file, "model"),
+            (src_kw, "keywords"),
+        ]:
+            if src.exists() and (dest / src.name).exists():
+                existing.append(f"  • {src.name} ({label})")
+
+        preview_path = entry.result.get("preview_path")
+        if preview_path:
+            pp = Path(preview_path)
+            if pp.exists() and (dest / pp.name).exists():
+                existing.append(f"  • {pp.name} (preview)")
+
+        if existing:
+            msg = "These files already exist:\n" + "\n".join(existing) + "\n\nOverwrite them?"
+            reply = QMessageBox.question(
+                self, "Overwrite?", msg,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
         shutil.move(str(src_file), str(dest / src_file.name))
         if src_kw.exists():
             shutil.move(str(src_kw), str(dest / src_kw.name))
 
         # Also move preview image if present
-        preview_path = entry.result.get("preview_path")
         if preview_path:
             pp = Path(preview_path)
             if pp.exists():
