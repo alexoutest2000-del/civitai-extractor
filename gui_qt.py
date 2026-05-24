@@ -136,11 +136,11 @@ QLabel#section_header {
 # ─── URL LINE EDIT (paste detection) ─────────────────────
 
 class UrlLineEdit(QLineEdit):
-    """QLineEdit that auto-triggers download when a URL is pasted."""
+    """QLineEdit that auto-triggers download when a URL is pasted (Ctrl+V / right-click)."""
     url_pasted = Signal()
 
-    def insertFromMimeData(self, source):
-        super().insertFromMimeData(source)
+    def paste(self):
+        super().paste()
         self.url_pasted.emit()
 
 
