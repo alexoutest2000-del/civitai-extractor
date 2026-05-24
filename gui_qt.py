@@ -155,6 +155,34 @@ class UrlLineEdit(QLineEdit):
             self.url_pasted.emit()
 
 
+# ─── PREVIEW LABEL (aspect-ratio-preserving, resizable) ──
+
+class PreviewLabel(QLabel):
+    """QLabel that scales its pixmap to fit while preserving aspect ratio."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._pixmap = None
+        self.setAlignment(Qt.AlignCenter)
+        self.setMinimumHeight(100)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    def setPreviewPixmap(self, pixmap: QPixmap):
+        self._pixmap = pixmap
+        self._rescale()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._rescale()
+
+    def _rescale(self):
+        if self._pixmap and not self._pixmap.isNull():
+            scaled = self._pixmap.scaled(
+                self.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.setPixmap(scaled)
+
+
 # ─── DOWNLOAD WORKER ────────────────────────────────────
 
 
@@ -564,7 +592,7 @@ class MainWindow(QMainWindow):
         self.preview_title.setWordWrap(True)
         self.preview_title.hide()
         pv_layout.addWidget(self.preview_title)
-        self.preview_label = QLabel()
+        self.preview_label = PreviewLabel()
         self.preview_label.setObjectName("preview_label")
         self.preview_label.setAlignment(Qt.AlignCenter)
         self.preview_label.setMinimumHeight(150)
@@ -787,8 +815,7 @@ class MainWindow(QMainWindow):
         else:
             pix.loadFromData(data)
         if not pix.isNull():
-            pix = pix.scaled(350, 350, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.preview_label.setPixmap(pix)
+            self.preview_label.setPreviewPixmap(pix)
             self.preview_label.setText("")
         else:
             self.preview_label.setText("Preview failed — bad image data")
