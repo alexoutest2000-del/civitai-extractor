@@ -902,12 +902,7 @@ class MainWindow(QMainWindow):
             base_path = self.data_root / ft / bm
 
         if base_path.is_dir():
-            action_added = False
-            for sub in sorted(base_path.iterdir()):
-                if sub.is_dir():
-                    a = menu.addAction(f"📁 {sub.name}")
-                    a.triggered.connect(lambda checked, d=sub: self._save_to(entry, d))
-                    action_added = True
+            action_added = self._build_folder_menu(menu, base_path, entry)
             if not action_added:
                 label = f"(no folders under {ft}/)" if ft in ("checkpoint", "checkpoints") else f"(no folders under {ft}/{bm}/)"
                 a = menu.addAction(label)
@@ -925,6 +920,28 @@ class MainWindow(QMainWindow):
             menu.exec(global_pos)
         else:
             menu.exec(self.cursor().pos())
+
+    def _build_folder_menu(self, menu: QMenu, path: Path, entry: DownloadEntryWidget, depth: int = 0) -> bool:
+        """Recursively add subdirectories as cascading submenus. Returns True if any added."""
+        from PySide6.QtGui import QIcon
+        added = False
+        dirs = sorted([d for d in path.iterdir() if d.is_dir()])
+        for d in dirs:
+            has_children = any(c.is_dir() for c in d.iterdir())
+            if has_children and depth < 3:
+                # Nested — create a submenu
+                submenu = menu.addMenu(f"📁 {d.name}")
+                self._build_folder_menu(submenu, d, entry, depth + 1)
+                # Also add "Save here" at this level
+                submenu.addSeparator()
+                save_action = submenu.addAction(f"💾 Save here → {d.name}")
+                save_action.triggered.connect(lambda checked, dest=d: self._save_to(entry, dest))
+            else:
+                # Leaf folder (or max depth reached)
+                a = menu.addAction(f"📁 {d.name}")
+                a.triggered.connect(lambda checked, dest=d: self._save_to(entry, dest))
+            added = True
+        return added
 
     def _browse_save(self, entry: DownloadEntryWidget):
         d = QFileDialog.getExistingDirectory(self, "Save To", str(self.data_root))
