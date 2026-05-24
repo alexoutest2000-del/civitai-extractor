@@ -201,10 +201,13 @@ class DownloadWorker(QThread):
             txt_path = ext.save_keywords(model_data, file_info)
             keywords = ext.extract_keywords(model_data)
 
-            # Save preview image
+            # Save preview image (non-fatal — don't fail the download if preview fetch errors)
             preview_path = None
             if first_image:
-                preview_path = ext.save_preview_image(first_image, file_info)
+                try:
+                    preview_path = ext.save_preview_image(first_image, file_info)
+                except Exception:
+                    pass
 
             self.done.emit({
                 "model_name": model_data.get("name", "Unknown"),
@@ -711,6 +714,10 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(
             f"✓ {result['model_name']} ({result['file_type']} | {result['base_model']})"
         )
+
+        # Auto-show preview if nothing else is selected
+        if self._active_entry is None:
+            self._on_preview_clicked(entry)
 
     def _on_error(self, entry: DownloadEntryWidget, msg: str):
         entry.progress.setFormat(f"✗ {msg}")
