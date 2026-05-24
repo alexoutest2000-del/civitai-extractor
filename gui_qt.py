@@ -136,12 +136,23 @@ QLabel#section_header {
 # ─── URL LINE EDIT (paste detection) ─────────────────────
 
 class UrlLineEdit(QLineEdit):
-    """QLineEdit that auto-triggers download when a URL is pasted (Ctrl+V / right-click)."""
+    """QLineEdit that auto-triggers download when a URL is pasted."""
     url_pasted = Signal()
 
     def paste(self):
+        """Right-click → Paste / Shift+Insert."""
         super().paste()
         self.url_pasted.emit()
+
+    def keyPressEvent(self, event):
+        """Catch Ctrl+V which bypasses paste() in PySide6."""
+        is_paste = (
+            (event.key() == Qt.Key_V and event.modifiers() == Qt.ControlModifier) or
+            (event.key() == Qt.Key_Insert and event.modifiers() == Qt.ShiftModifier)
+        )
+        super().keyPressEvent(event)
+        if is_paste:
+            self.url_pasted.emit()
 
 
 # ─── DOWNLOAD WORKER ────────────────────────────────────
