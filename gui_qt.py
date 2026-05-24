@@ -330,13 +330,12 @@ class DownloadEntryWidget(QWidget):
         layout.addWidget(self.actions_widget)
 
     def set_highlighted(self, on: bool):
-        """Toggle light-yellow left-edge accent on the card."""
+        """Toggle yellow highlight on the card when selected."""
         if on:
-            self._card.setStyleSheet("""
+            self._card.setStyleSheet("""\
                 QWidget {
-                    background: #2a2a2a;
-                    border: 1px solid #3a3a3a;
-                    border-left: 3px solid #e8d44d;
+                    background: #2e2e24;
+                    border: 1px solid #e8d44d;
                     border-radius: 5px;
                 }
             """)
