@@ -462,7 +462,12 @@ class MainWindow(QMainWindow):
         self.temp_dir = Path.home() / ".cache" / "civitai-temp"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         self.data_root = Path(self._config.get("data_root", Path.home() / "civitai-data"))
-        self.data_root.mkdir(parents=True, exist_ok=True)
+        try:
+            self.data_root.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            # Stale config path (e.g. from another machine) — fall back to default
+            self.data_root = Path.home() / "civitai-data"
+            self.data_root.mkdir(parents=True, exist_ok=True)
         self._saved_key_path = self._config.get("key_path", "")
 
         self._setup_ui()
