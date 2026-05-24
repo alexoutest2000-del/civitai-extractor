@@ -812,14 +812,39 @@ class MainWindow(QMainWindow):
         dest = Path(self.folder_model.filePath(idx))
         if not dest.is_dir():
             return
-        entry = self._active_entry
-        if not entry or not entry.result:
-            return
 
         menu = QMenu(self)
-        save_action = menu.addAction(f"Save here → {dest.name}")
-        save_action.triggered.connect(lambda: self._save_to(entry, dest))
+
+        # "Save here" — only if an active entry has results
+        entry = self._active_entry
+        if entry and entry.result:
+            save_action = menu.addAction(f"Save here → {dest.name}")
+            save_action.triggered.connect(lambda: self._save_to(entry, dest))
+            menu.addSeparator()
+
+        # "New Folder" — always available
+        new_action = menu.addAction("📁 New Folder…")
+        new_action.triggered.connect(lambda: self._create_folder(dest))
+
         menu.exec(self.folder_tree.viewport().mapToGlobal(pos))
+
+    def _create_folder(self, parent: Path):
+        """Prompt for a folder name and create it under parent."""
+        from PySide6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(
+            self, "New Folder", "Folder name:",
+            text="new folder"
+        )
+        if ok and name.strip():
+            new_dir = parent / name.strip()
+            try:
+                new_dir.mkdir(parents=True, exist_ok=True)
+                # Refresh the folder tree to show the new folder
+                self.folder_model.setRootPath(str(self.data_root))
+                self.folder_tree.setRootIndex(self.folder_model.index(str(self.data_root)))
+                self.status_bar.showMessage(f"✓ Created {new_dir}")
+            except OSError as e:
+                QMessageBox.critical(self, "Error", f"Could not create folder:\n{e}")
 
     def _show_context_menu(self, entry: DownloadEntryWidget, global_pos=None):
         menu = QMenu(self)
