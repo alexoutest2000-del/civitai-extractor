@@ -7,6 +7,7 @@ Desktop GUI tool to download AI models and extract trigger words from [civitai.r
 - **Paste & download** — paste a URL and press Enter, download starts immediately
 - **Progress tracking** — real-time progress bar with MB downloaded
 - **Image preview** — left-click any download entry to see the model's first gallery image
+- **Preview saved** — preview image auto-saved as `{filename}.preview.png` alongside the model file
 - **Trigger word extraction** — combines `trainedWords` with unique description keywords → `{filename}.txt`
 - **Type detection** — identifies LORA, Checkpoint, etc., and the base model (Illustrious, Pony, SDXL…)
 - **Organized saving** — right-click a download → choose destination folder, or use the folder browser sidebar

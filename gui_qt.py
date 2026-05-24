@@ -179,6 +179,11 @@ class DownloadWorker(QThread):
             txt_path = ext.save_keywords(model_data, file_info)
             keywords = ext.extract_keywords(model_data)
 
+            # Save preview image
+            preview_path = None
+            if first_image:
+                preview_path = ext.save_preview_image(first_image, file_info)
+
             self.done.emit({
                 "model_name": model_data.get("name", "Unknown"),
                 "url": self.url,
@@ -191,6 +196,7 @@ class DownloadWorker(QThread):
                 "keyword_count": len(keywords),
                 "keywords": keywords,
                 "first_image": first_image,
+                "preview_path": str(preview_path) if preview_path else None,
             })
         except Exception as e:
             self.error.emit(str(e))
@@ -802,6 +808,13 @@ class MainWindow(QMainWindow):
         if src_kw.exists():
             shutil.move(str(src_kw), str(dest / src_kw.name))
 
+        # Also move preview image if present
+        preview_path = entry.result.get("preview_path")
+        if preview_path:
+            pp = Path(preview_path)
+            if pp.exists():
+                shutil.move(str(pp), str(dest / pp.name))
+
         base = src_file.stem
         for leftover in list(self.temp_dir.iterdir()):
             if leftover.is_file() and leftover.stem == base:
@@ -818,7 +831,7 @@ class MainWindow(QMainWindow):
         if self._active_entry is entry:
             self._active_entry = None
         if entry.result:
-            for key in ("file", "keywords_file"):
+            for key in ("file", "keywords_file", "preview_path"):
                 fp = entry.result.get(key)
                 if fp and Path(fp).exists():
                     try:
@@ -828,7 +841,7 @@ class MainWindow(QMainWindow):
             src_file = Path(entry.result["file"])
             base = src_file.stem
             for leftover in list(self.temp_dir.iterdir()):
-                if leftover.is_file() and leftover.stem == base:
+                if leftover.is_file() and leftover.stem in (base, f"{base}.preview"):
                     try:
                         leftover.unlink()
                     except OSError:

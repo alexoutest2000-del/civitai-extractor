@@ -263,6 +263,25 @@ class CivitaiExtractor:
 
         return txt_path
 
+    def save_preview_image(self, image_url: str, file_info: dict) -> Path | None:
+        """Download the first preview image and save as {basename}.preview.png."""
+        if not image_url:
+            return None
+
+        model_name = file_info["name"]
+        base = os.path.splitext(model_name)[0]
+        preview_path = self.download_dir / f"{base}.preview.png"
+
+        req = urllib.request.Request(
+            image_url,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            with open(preview_path, "wb") as f:
+                f.write(resp.read())
+
+        return preview_path
+
     def process(
         self,
         url: str,
@@ -286,6 +305,9 @@ class CivitaiExtractor:
         # Save keywords
         txt_path = self.save_keywords(model_data, file_info)
 
+        # Save preview image
+        preview_path = self.save_preview_image(first_image, file_info)
+
         return {
             "model_name": model_name,
             "file": str(dest),
@@ -297,6 +319,7 @@ class CivitaiExtractor:
             "keyword_count": len(keywords),
             "keywords": keywords,
             "first_image": first_image,
+            "preview_path": str(preview_path) if preview_path else None,
         }
 
 
@@ -327,3 +350,5 @@ if __name__ == "__main__":
     print(f"  Keywords: {result['keyword_count']} lines")
     if result.get("first_image"):
         print(f"  Preview: {result['first_image']}")
+    if result.get("preview_path"):
+        print(f"  Preview saved: {result['preview_path']}")
