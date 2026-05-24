@@ -238,6 +238,7 @@ class DownloadEntryWidget(QWidget):
         self.url = url
         self.result = None
         self.first_image_url = None
+        self.file_type = None
         self.setCursor(Qt.PointingHandCursor)
         self._build()
 
@@ -642,10 +643,12 @@ class MainWindow(QMainWindow):
     def _on_metadata(self, entry: DownloadEntryWidget, data: dict):
         entry.name_label.setText(data["model_name"][:80])
         entry.type_label.setText(f"{data['file_name']} · {data['file_type']} · {data['base_model']}")
+        entry.file_type = data["file_type"]
 
     def _on_progress(self, entry: DownloadEntryWidget, pct: float):
         entry.progress.setValue(int(pct))
-        entry.progress.setFormat(f"{pct:.0f}%")
+        ft = entry.file_type or ""
+        entry.progress.setFormat(f"{ft} · {pct:.0f}%" if ft else f"{pct:.0f}%")
         entry.progress.repaint()
 
     def _on_preview_url(self, entry: DownloadEntryWidget, url: str):
@@ -654,7 +657,7 @@ class MainWindow(QMainWindow):
     def _on_done(self, entry: DownloadEntryWidget, result: dict):
         entry.result = result
         entry.progress.setValue(100)
-        entry.progress.setFormat(f"✓ {result['size_kb']:.0f} KB · {result['keyword_count']} keywords")
+        entry.progress.setFormat(f"✓ {result['file_type']} · {result['size_kb']:.0f} KB · {result['keyword_count']} keywords")
         entry.progress.setStyleSheet(
             "QProgressBar { background: #333; } QProgressBar::chunk { background: #4a4; }"
         )
