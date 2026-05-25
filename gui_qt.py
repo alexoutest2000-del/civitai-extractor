@@ -603,6 +603,12 @@ class MainWindow(QMainWindow):
         hdr = QLabel("PREVIEW")
         hdr.setObjectName("section_header")
         pv_layout.addWidget(hdr)
+        self._selected_count_label = QLabel("")
+        self._selected_count_label.setStyleSheet(
+            "color: #e8d44d; font-size: 12px; font-weight: bold; padding: 2px 0;"
+        )
+        self._selected_count_label.hide()
+        pv_layout.addWidget(self._selected_count_label)
         self.preview_title = QLabel("")
         self.preview_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #d4d4d4; padding: 2px 0;")
         self.preview_title.setWordWrap(True)
@@ -771,7 +777,11 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"✗ Error: {msg}")
 
     def _on_preview_clicked(self, entry: DownloadEntryWidget):
-        """Show preview for the clicked entry. Selection toggling is handled by Qt MultiSelection."""
+        """Show preview for the clicked entry. If entry was deselected, clear preview."""
+        if not entry._selected:
+            # Click deselected this entry — clear preview
+            self._clear_preview()
+            return
         self._active_entry = entry
         # Set title above preview
         title = (entry.result or {}).get("model_name") or entry.name_label.text()
@@ -783,6 +793,13 @@ class MainWindow(QMainWindow):
         img = entry.first_image_url or (entry.result or {}).get("first_image")
         if img:
             self._show_preview(img)
+
+    def _clear_preview(self):
+        """Clear the preview panel."""
+        self._active_entry = None
+        self.preview_title.hide()
+        self.preview_label.clear()
+        self.preview_label.setText("No preview")
 
     # ─── PREVIEW ───────────────────────────────────────
 
@@ -1035,12 +1052,23 @@ class MainWindow(QMainWindow):
     # ─── MULTI-SELECT & BATCH SAVE ─────────────────────
 
     def _on_selection_changed(self):
-        """Update visual selection state on all entry widgets."""
+        """Update visual selection state on all entry widgets + counter label."""
+        count = 0
         for i in range(self.queue_list.count()):
             item = self.queue_list.item(i)
             entry = self.queue_list.itemWidget(item)
             if entry:
-                entry.set_selected(item.isSelected())
+                selected = item.isSelected()
+                entry.set_selected(selected)
+                if selected:
+                    count += 1
+
+        # Update the "N selected" counter in the preview panel
+        if count >= 2:
+            self._selected_count_label.setText(f"{count} selected")
+            self._selected_count_label.show()
+        else:
+            self._selected_count_label.hide()
 
     def _get_selected_entries(self) -> list[DownloadEntryWidget]:
         """Return all DownloadEntryWidgets whose list items are selected."""
