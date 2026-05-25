@@ -270,6 +270,8 @@ class DownloadEntryWidget(QWidget):
         self.result = None
         self.first_image_url = None
         self.file_type = None
+        self._highlighted = False
+        self._selected = False
         self.setCursor(Qt.PointingHandCursor)
         self._build()
 
@@ -360,9 +362,9 @@ class DownloadEntryWidget(QWidget):
         self.actions_widget.setLayout(self.actions_row)
         layout.addWidget(self.actions_widget)
 
-    def set_highlighted(self, on: bool):
-        """Toggle yellow highlight on the card when selected."""
-        if on:
+    def _update_card_style(self):
+        """Apply the correct card style based on highlight + selection state."""
+        if self._highlighted:
             self._card.setStyleSheet("""\
                 QWidget {
                     background: #2e2e24;
@@ -370,8 +372,26 @@ class DownloadEntryWidget(QWidget):
                     border-radius: 5px;
                 }
             """)
+        elif self._selected:
+            self._card.setStyleSheet("""\
+                QWidget {
+                    background: #2a2a2a;
+                    border: 1px solid #4a90d9;
+                    border-radius: 5px;
+                }
+            """)
         else:
             self._card.setStyleSheet(self._card_normal_ss)
+
+    def set_highlighted(self, on: bool):
+        """Toggle yellow highlight on the card (preview selection)."""
+        self._highlighted = on
+        self._update_card_style()
+
+    def set_selected(self, on: bool):
+        """Toggle blue selection indicator on the card (multi-select)."""
+        self._selected = on
+        self._update_card_style()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -578,9 +598,10 @@ class MainWindow(QMainWindow):
         hdr.setObjectName("section_header")
         dl_layout.addWidget(hdr)
         self.queue_list = QListWidget()
-        self.queue_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self.queue_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.queue_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.queue_list.customContextMenuRequested.connect(self._queue_context_menu)
+        self.queue_list.itemSelectionChanged.connect(self._on_selection_changed)
         dl_layout.addWidget(self.queue_list)
         splitter.addWidget(downloads)
 
@@ -847,12 +868,25 @@ class MainWindow(QMainWindow):
 
         menu = QMenu(self)
 
-        # "Save here" — only if an active entry has results
-        entry = self._active_entry
-        if entry and entry.result:
-            save_action = menu.addAction(f"Save here → {dest.name}")
-            save_action.triggered.connect(lambda: self._save_to(entry, dest))
+        # Check for multi-select first
+        selected_done = self._get_selected_done_entries()
+        if len(selected_done) >= 2:
+            batch_action = menu.addAction(f"💾 Save {len(selected_done)} selected items here → {dest.name}")
+            batch_action.triggered.connect(lambda: self._batch_save_to(list(selected_done), dest))
             menu.addSeparator()
+        elif selected_done:
+            # Single entry with result
+            entry = selected_done[0]
+            save_action = menu.addAction(f"Save here → {dest.name}")
+            save_action.triggered.connect(lambda e=entry: self._save_to(e, dest))
+            menu.addSeparator()
+        else:
+            # Fall back to _active_entry
+            entry = self._active_entry
+            if entry and entry.result:
+                save_action = menu.addAction(f"Save here → {dest.name}")
+                save_action.triggered.connect(lambda e=entry: self._save_to(e, dest))
+                menu.addSeparator()
 
         # "New Folder" — always available
         new_action = menu.addAction("📁 New Folder…")
@@ -881,6 +915,36 @@ class MainWindow(QMainWindow):
     def _show_context_menu(self, entry: DownloadEntryWidget, global_pos=None):
         menu = QMenu(self)
 
+        # ── Multi-select batch operations ──
+        selected_done = self._get_selected_done_entries()
+        if len(selected_done) >= 2 and entry in selected_done:
+            a = menu.addAction(f"💾 Save all {len(selected_done)} selected items to…")
+            a.setStyleSheet("color: #4a90d9; font-weight: bold;")
+
+            # Build cascading folder menu for batch save
+            ft = entry.result["file_type"].lower()
+            bm = entry.result["base_model"].lower()
+            if ft in ("checkpoint", "checkpoints"):
+                base_path = self.data_root / ft
+            else:
+                base_path = self.data_root / ft / bm
+
+            if base_path.is_dir():
+                self._build_batch_folder_menu(menu, base_path, selected_done)
+
+            menu.addSeparator()
+            a = menu.addAction("📂 Browse…")
+            a.triggered.connect(lambda: self._browse_batch_save(selected_done))
+            menu.addSeparator()
+            a = menu.addAction("✕ Remove Selected & Purge")
+            a.triggered.connect(lambda: self._kill_selected_entries())
+            if global_pos:
+                menu.exec(global_pos)
+            else:
+                menu.exec(self.cursor().pos())
+            return
+
+        # ── Single-entry menu (original) ──
         # Copy URL (always available)
         a = menu.addAction("📋 Copy civitai URL")
         a.triggered.connect(lambda: QApplication.clipboard().setText(entry.url))
@@ -948,10 +1012,131 @@ class MainWindow(QMainWindow):
             added = True
         return added
 
+    def _build_batch_folder_menu(self, menu: QMenu, path: Path, entries: list, depth: int = 0) -> bool:
+        """Recursively add subdirectories as cascading submenus for batch save. Returns True if any added."""
+        added = False
+        dirs = sorted([d for d in path.iterdir() if d.is_dir()])
+        for d in dirs:
+            has_children = any(c.is_dir() for c in d.iterdir())
+            if has_children and depth < 3:
+                submenu = menu.addMenu(f"📁 {d.name}")
+                self._build_batch_folder_menu(submenu, d, entries, depth + 1)
+                submenu.addSeparator()
+                save_action = submenu.addAction(f"💾 Save {len(entries)} items here → {d.name}")
+                save_action.triggered.connect(lambda checked, dest=d, e=list(entries): self._batch_save_to(e, dest))
+            else:
+                a = menu.addAction(f"📁 {d.name}")
+                a.triggered.connect(lambda checked, dest=d, e=list(entries): self._batch_save_to(e, dest))
+            added = True
+        return added
+
+    def _browse_batch_save(self, entries: list[DownloadEntryWidget]):
+        d = QFileDialog.getExistingDirectory(self, "Save All To", str(self.data_root))
+        if d:
+            self._batch_save_to(entries, Path(d))
+
+    def _kill_selected_entries(self):
+        """Remove and purge all selected entries."""
+        for entry in self._get_selected_entries():
+            self._kill_entry(entry)
+
     def _browse_save(self, entry: DownloadEntryWidget):
         d = QFileDialog.getExistingDirectory(self, "Save To", str(self.data_root))
         if d:
             self._save_to(entry, Path(d))
+
+    # ─── MULTI-SELECT & BATCH SAVE ─────────────────────
+
+    def _on_selection_changed(self):
+        """Update visual selection state on all entry widgets."""
+        for i in range(self.queue_list.count()):
+            item = self.queue_list.item(i)
+            entry = self.queue_list.itemWidget(item)
+            if entry:
+                entry.set_selected(item.isSelected())
+
+    def _get_selected_entries(self) -> list[DownloadEntryWidget]:
+        """Return all DownloadEntryWidgets whose list items are selected."""
+        entries = []
+        for i in range(self.queue_list.count()):
+            item = self.queue_list.item(i)
+            if item.isSelected():
+                entry = self.queue_list.itemWidget(item)
+                if entry:
+                    entries.append(entry)
+        return entries
+
+    def _get_selected_done_entries(self) -> list[DownloadEntryWidget]:
+        """Return selected entries that have completed downloads (result is set)."""
+        return [e for e in self._get_selected_entries() if e.result]
+
+    def _batch_save_to(self, entries: list[DownloadEntryWidget], dest: Path):
+        """Save all given entries to the same destination folder."""
+        if not entries:
+            return
+        dest.mkdir(parents=True, exist_ok=True)
+
+        # Collect all files that would be overwritten
+        existing = []
+        for entry in entries:
+            if not entry.result:
+                continue
+            src_file = Path(entry.result["file"])
+            src_kw = Path(entry.result["keywords_file"])
+            if src_file.exists() and (dest / src_file.name).exists():
+                existing.append(f"  • {src_file.name} (model)")
+            if src_kw.exists() and (dest / src_kw.name).exists():
+                existing.append(f"  • {src_kw.name} (keywords)")
+            preview_path = entry.result.get("preview_path")
+            if preview_path:
+                pp = Path(preview_path)
+                if pp.exists() and (dest / pp.name).exists():
+                    existing.append(f"  • {pp.name} (preview)")
+
+        if existing:
+            msg = f"Save {len(entries)} items to {dest.name}?\n\nThese files already exist:\n" + "\n".join(existing) + "\n\nOverwrite them?"
+            reply = QMessageBox.question(
+                self, "Overwrite?", msg,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        saved = 0
+        for entry in entries:
+            if not entry.result:
+                continue
+            self._save_to_silent(entry, dest)
+            saved += 1
+
+        self.status_bar.showMessage(f"✓ Saved {saved} items → {dest}")
+
+    def _save_to_silent(self, entry: DownloadEntryWidget, dest: Path):
+        """Move files without overwrite prompts (caller handles confirmation)."""
+        src_file = Path(entry.result["file"])
+        src_kw = Path(entry.result["keywords_file"])
+
+        shutil.move(str(src_file), str(dest / src_file.name))
+        if src_kw.exists():
+            shutil.move(str(src_kw), str(dest / src_kw.name))
+
+        preview_path = entry.result.get("preview_path")
+        if preview_path:
+            pp = Path(preview_path)
+            if pp.exists():
+                shutil.move(str(pp), str(dest / pp.name))
+
+        # Clean up leftover temp files
+        base = src_file.stem
+        for leftover in list(self.temp_dir.iterdir()):
+            if leftover.is_file() and leftover.stem == base:
+                try:
+                    leftover.unlink()
+                except OSError:
+                    pass
+
+        self._kill_entry(entry)
 
     # ─── FILE OPERATIONS ───────────────────────────────
 
