@@ -261,6 +261,7 @@ class DownloadWorker(QThread):
 class DownloadEntryWidget(QWidget):
     """One download row in the queue list."""
     killed = Signal(object)
+    retry_requested = Signal(object)
     preview_clicked = Signal(object)
     menu_requested = Signal(object)
 
@@ -271,6 +272,7 @@ class DownloadEntryWidget(QWidget):
         self.first_image_url = None
         self.file_type = None
         self._selected = False
+        self._active_worker = None
         self.setCursor(Qt.PointingHandCursor)
         self._build()
 
@@ -339,6 +341,17 @@ class DownloadEntryWidget(QWidget):
         # Actions row (always visible — buttons enabled only when done)
         self.actions_row = QHBoxLayout()
         self.actions_row.setSpacing(8)
+
+        self.retry_btn = QPushButton("↻ Retry")
+        self.retry_btn.setMinimumHeight(30)
+        self.retry_btn.setStyleSheet(
+            "QPushButton { font-size: 12px; padding: 5px 16px; color: #e8d44d; border-color: #e8d44d; }"
+            "QPushButton:hover { background: #3a3020; }"
+        )
+        self.retry_btn.clicked.connect(lambda: self.retry_requested.emit(self))
+        self.retry_btn.setCursor(Qt.ArrowCursor)
+        self.retry_btn.hide()
+        self.actions_row.addWidget(self.retry_btn)
 
         self.kw_btn = QPushButton("Keywords")
         self.kw_btn.setMinimumHeight(30)
@@ -719,6 +732,7 @@ class MainWindow(QMainWindow):
         entry.preview_clicked.connect(self._on_preview_clicked)
         entry.menu_requested.connect(lambda e: self._show_context_menu(e))
         entry.killed.connect(self._kill_entry)
+        entry.retry_requested.connect(self._retry_download)
 
         item = QListWidgetItem()
         self.queue_list.insertItem(0, item)
@@ -733,7 +747,9 @@ class MainWindow(QMainWindow):
         worker.done.connect(lambda r: self._on_done(entry, r))
         worker.error.connect(lambda e: self._on_error(entry, e))
         worker.finished.connect(lambda w=worker: self._workers.remove(w) if w in self._workers else None)
+        worker.finished.connect(lambda: setattr(entry, '_active_worker', None))
         self._workers.append(worker)
+        entry._active_worker = worker
         worker.start()
 
         self.status_bar.showMessage(f"Downloading: {url[:60]}...")
@@ -774,7 +790,41 @@ class MainWindow(QMainWindow):
         entry.progress.setStyleSheet(
             "QProgressBar { background: #333; } QProgressBar::chunk { background: #e44; }"
         )
+        entry.retry_btn.show()
         self.status_bar.showMessage(f"✗ Error: {msg}")
+
+    def _retry_download(self, entry: DownloadEntryWidget):
+        """Restart a failed download with the same URL."""
+        # Terminate any existing worker for this entry
+        old = getattr(entry, '_active_worker', None)
+        if old and old.isRunning():
+            old.terminate()
+            if old in self._workers:
+                self._workers.remove(old)
+
+        # Reset UI state
+        entry.progress.setValue(0)
+        entry.progress.setFormat("Retrying...")
+        entry.progress.setStyleSheet("")  # revert to default QSS
+        entry.retry_btn.hide()
+        entry.kw_btn.setEnabled(False)
+        entry.save_btn.setEnabled(False)
+        entry.result = None
+        entry.first_image_url = None
+
+        worker = DownloadWorker(entry.url, self.api_key, str(self.temp_dir))
+        worker.metadata.connect(lambda d: self._on_metadata(entry, d))
+        worker.progress.connect(lambda pct: self._on_progress(entry, pct))
+        worker.preview_url.connect(lambda u: self._on_preview_url(entry, u))
+        worker.done.connect(lambda r: self._on_done(entry, r))
+        worker.error.connect(lambda e: self._on_error(entry, e))
+        worker.finished.connect(lambda w=worker: self._workers.remove(w) if w in self._workers else None)
+        worker.finished.connect(lambda: setattr(entry, '_active_worker', None))
+        self._workers.append(worker)
+        entry._active_worker = worker
+        worker.start()
+
+        self.status_bar.showMessage(f"Retrying: {entry.url[:60]}...")
 
     def _on_preview_clicked(self, entry: DownloadEntryWidget):
         """Show preview for the clicked entry. If entry was deselected, clear preview."""
