@@ -827,13 +827,19 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"Retrying: {entry.url[:60]}...")
 
     def _on_preview_clicked(self, entry: DownloadEntryWidget):
-        """Show preview for the clicked entry. If entry was deselected, clear preview."""
+        """Defer preview update until after Qt processes the selection toggle."""
+        self._active_entry = entry
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, lambda e=entry: self._update_preview_for_entry(e))
+
+    def _update_preview_for_entry(self, entry: DownloadEntryWidget):
+        """Show or clear preview based on whether the entry is still selected."""
+        if entry is not self._active_entry:
+            return  # another click happened in between
         if not entry._selected:
-            # Click deselected this entry — clear preview
             self._clear_preview()
             return
-        self._active_entry = entry
-        # Set title above preview
+        # Entry is selected — show its preview
         title = (entry.result or {}).get("model_name") or entry.name_label.text()
         if title and title != "Queued...":
             self.preview_title.setText(title)
@@ -843,6 +849,8 @@ class MainWindow(QMainWindow):
         img = entry.first_image_url or (entry.result or {}).get("first_image")
         if img:
             self._show_preview(img)
+        else:
+            self.preview_label.setText("No preview")
 
     def _clear_preview(self):
         """Clear the preview panel."""
