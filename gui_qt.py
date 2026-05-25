@@ -270,7 +270,6 @@ class DownloadEntryWidget(QWidget):
         self.result = None
         self.first_image_url = None
         self.file_type = None
-        self._highlighted = False
         self._selected = False
         self.setCursor(Qt.PointingHandCursor)
         self._build()
@@ -363,8 +362,8 @@ class DownloadEntryWidget(QWidget):
         layout.addWidget(self.actions_widget)
 
     def _update_card_style(self):
-        """Apply the correct card style based on highlight + selection state."""
-        if self._highlighted:
+        """Apply yellow border when selected, normal otherwise."""
+        if self._selected:
             self._card.setStyleSheet("""\
                 QWidget {
                     background: #2e2e24;
@@ -372,24 +371,15 @@ class DownloadEntryWidget(QWidget):
                     border-radius: 5px;
                 }
             """)
-        elif self._selected:
-            self._card.setStyleSheet("""\
-                QWidget {
-                    background: #2a2a2a;
-                    border: 1px solid #4a90d9;
-                    border-radius: 5px;
-                }
-            """)
         else:
             self._card.setStyleSheet(self._card_normal_ss)
 
     def set_highlighted(self, on: bool):
-        """Toggle yellow highlight on the card (preview selection)."""
-        self._highlighted = on
-        self._update_card_style()
+        """Alias for set_selected — kept for backward compatibility."""
+        self.set_selected(on)
 
     def set_selected(self, on: bool):
-        """Toggle blue selection indicator on the card (multi-select)."""
+        """Toggle yellow selection border on the card."""
         self._selected = on
         self._update_card_style()
 
@@ -598,7 +588,7 @@ class MainWindow(QMainWindow):
         hdr.setObjectName("section_header")
         dl_layout.addWidget(hdr)
         self.queue_list = QListWidget()
-        self.queue_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        self.queue_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         self.queue_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.queue_list.customContextMenuRequested.connect(self._queue_context_menu)
         self.queue_list.itemSelectionChanged.connect(self._on_selection_changed)
@@ -781,10 +771,8 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"✗ Error: {msg}")
 
     def _on_preview_clicked(self, entry: DownloadEntryWidget):
-        if self._active_entry and self._active_entry is not entry:
-            self._active_entry.set_highlighted(False)
+        """Show preview for the clicked entry. Selection toggling is handled by Qt MultiSelection."""
         self._active_entry = entry
-        entry.set_highlighted(True)
         # Set title above preview
         title = (entry.result or {}).get("model_name") or entry.name_label.text()
         if title and title != "Queued...":
