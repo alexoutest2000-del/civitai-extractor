@@ -1140,6 +1140,10 @@ class MainWindow(QMainWindow):
         else:
             self._selected_count_label.hide()
 
+        # Safety net: if nothing is selected, clear the preview
+        if count == 0:
+            self._clear_preview()
+
     def _get_selected_entries(self) -> list[DownloadEntryWidget]:
         """Return all DownloadEntryWidgets whose list items are selected."""
         entries = []
