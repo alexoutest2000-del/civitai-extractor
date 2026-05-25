@@ -907,7 +907,6 @@ class MainWindow(QMainWindow):
         selected_done = self._get_selected_done_entries()
         if len(selected_done) >= 2 and entry in selected_done:
             a = menu.addAction(f"💾 Save all {len(selected_done)} selected items to…")
-            a.setStyleSheet("color: #4a90d9; font-weight: bold;")
 
             # Build cascading folder menu for batch save
             ft = entry.result["file_type"].lower()
