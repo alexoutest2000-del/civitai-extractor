@@ -170,6 +170,12 @@ class PreviewLabel(QLabel):
         self._pixmap = pixmap
         self._rescale()
 
+    def clearPreview(self):
+        """Clear the pixmap and reset the cache so resize won't restore it."""
+        self._pixmap = None
+        self.clear()
+        self.setText("No preview")
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._rescale()
@@ -783,7 +789,14 @@ class MainWindow(QMainWindow):
 
         # Auto-show preview if nothing else is selected
         if self._active_entry is None:
-            self._on_preview_clicked(entry)
+            self._active_entry = entry
+            title = result.get("model_name") or entry.name_label.text()
+            if title and title != "Queued...":
+                self.preview_title.setText(title)
+                self.preview_title.show()
+            img = result.get("first_image") or entry.first_image_url
+            if img:
+                self._show_preview(img)
 
     def _on_error(self, entry: DownloadEntryWidget, msg: str):
         entry.progress.setFormat(f"✗ {msg}")
@@ -856,8 +869,7 @@ class MainWindow(QMainWindow):
         """Clear the preview panel."""
         self._active_entry = None
         self.preview_title.hide()
-        self.preview_label.clear()
-        self.preview_label.setText("No preview")
+        self.preview_label.clearPreview()
 
     # ─── PREVIEW ───────────────────────────────────────
 
